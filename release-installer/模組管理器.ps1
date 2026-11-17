@@ -12,7 +12,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
-$managerVersion = "0.2.0"
+$managerVersion = "0.2.1"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
@@ -187,7 +187,7 @@ foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) 
 foreach ($item in @(
   @("LoRA Manager","1.3.1","LoRA 瀏覽、分類與資訊管理"),
   @("TAG Manager","1.0.1","中英 TAG 對照與提示"),
-  @("Prompt Generator","1.1.0","可攜提示詞服務、Ollama 模型自訂與測試；需安裝 Ollama"),
+  @("Prompt Generator","1.1.1","內建可攜提示詞服務、Ollama 模型自訂與測試；需另裝 Ollama"),
   @("Creative Tools","0.5.0","擴圖、姿勢、後製與漫畫工具")
 )) {
   $row = $table.NewRow()

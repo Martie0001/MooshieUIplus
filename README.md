@@ -2,7 +2,7 @@
 
 這個專案整合以下功能：LoRA 分類瀏覽／資訊管理、TAG 中文提示、Prompt Generator 可攜提示詞服務、Creative Tools（參考圖、擴圖、姿勢、後製／漫畫）。**這些功能是編譯進 MooshieUI 的 source-level 擴充，不是 ComfyUI 的 custom_nodes。**
 
-Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAssistant) 的 WPF 模組清單與側邊導覽介面，透過 `.vbs` 直接啟動（不需 CMD）；原專案依 MIT 授權，保留著作權聲明與授權全文於管理器程式，並於 NOTICE 中標示來源。
+Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAssistant) 的 WPF 模組清單與側邊導覽介面。**一般使用者直接雙擊 `MooshieUIplus-Manager.exe` 啟動**；不再要求使用 `.vbs`、PowerShell 或 CMD。原專案依 MIT 授權，保留著作權聲明與授權全文於管理器程式，並於 NOTICE 中標示來源。
 
 **MooshieUIplus 產品版本從 `0.1.0` 起單獨管理**，與官方 MooshieUI `2.3.49` 及各模組版次分開。歷次新增、修復與未解決問題請見 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -10,7 +10,7 @@ Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAs
 
 | 版本 | 對象 | 建置工具 | 安裝方式 |
 | --- | --- | --- | --- |
-| **B：Windows 免編譯模組管理器** | 一般使用者 | 不需要 Node.js、Rust、Git 或 C++ Build Tools | 安裝原版 MooshieUI 2.3.49，解壓 ZIP，雙擊「啟動模組管理.vbs」 |
+| **B：Windows 免編譯模組管理器** | 一般使用者 | 不需要 Node.js、Rust、Git 或 C++ Build Tools | 安裝原版 MooshieUI 2.3.49，完整解壓 ZIP，雙擊「MooshieUIplus-Manager.exe」 |
 | **A：完整整合原始碼包** | 開發者、想修改功能的使用者 | 需要 Node.js/npm、Git、Rust/Cargo、Visual Studio C++ Build Tools、Windows SDK | 用隨附原始碼編譯，或將模組套用到乾淨的官方 2.3.49 原始碼 |
 
 **請勿把兩個 ZIP 當成適用不同版本的程式。兩者均只支援 MooshieUI 2.3.49。** 下載最新版 MooshieUI 並不代表此套件已適配。
@@ -19,14 +19,14 @@ Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAs
 
 1. 安裝官方 MooshieUI **2.3.49**，確認程式與 ComfyUI 後端可正常啟動。若要使用 **Prompt Generator AI 生成功能**，另外從 [Ollama 官方網站](https://ollama.com/download) 安裝並啟動 Ollama、至少下載一個聊天模型。
 2. 下載 GitHub Release 內的 **B Windows ZIP**，完整解壓縮到任意資料夾，例如 `C:\AI\MooshieUIplus`。
-3. 雙擊 **`啟動模組管理.vbs`**，首次指定已安裝的 `comfyui-desktop.exe`，無須使用 CMD。
+3. 雙擊 **`MooshieUIplus-Manager.exe`** 開啟圖形管理器，首次指定已安裝的 `comfyui-desktop.exe`，無須使用 `.vbs`、CMD 或 PowerShell。請完整解壓縮 ZIP，不可只複製管理器 EXE。
 4. 需要首次安裝時，關閉 MooshieUI，按「本地套件安裝」，由管理器備份 EXE 後替換。
 5. 以後只要按一次 **「檢查 GitHub 並更新」**，有相容新版本時確認即可更新，不必再手動下載新的整包。管理器優先比對小型更新資訊與本機 SHA256，無變更不下載；只有管理器改版時只下載小型包，EXE 改版才下載完整 B ZIP；已驗證 ZIP 會快取重用。
 6. 需要還原時，按「還原備份」，備份儲存在 `%LOCALAPPDATA%\MooshieUIplus\history\exe-backups`。
 
-**從 v0.1.1 舊管理器直接升級時：** 首次更新後若 Prompt Generator 顯示缺少可攜執行元件，請重開新版管理器，再按一次「檢查 GitHub 並更新」補齊；已下載並驗證的 B ZIP 會由快取重用，不重新下載完整包。
+**舊版 v0.1.1／v0.2.0 使用者：** 為避免舊更新器未安裝完整執行元件，建議直接下載最新版 B Windows ZIP、完整解壓後雙擊 `MooshieUIplus-Manager.exe`，選擇原本正在使用的 MooshieUI EXE，透過「本地套件安裝」一次更新 EXE 與 Node runtime。舊更新器仍可用作過渡，但可能需要再執行一次新版管理器更新。
 
-B 版不需要編譯工具，但仍需要可正常使用的官方 MooshieUI 2.3.49 與 ComfyUI 後端。本套件不是完整 ComfyUI 安裝程式，也**不會自動跨版更新**。四個模組共用同一個已編譯 EXE，並非可以獨立熱插拔的外掛。
+B 版不需要編譯工具，管理器使用 Windows 內建 .NET Framework／Windows PowerShell（附完整管理器腳本，但一般使用者不需自行開啟）。EXE 未數位簽章，可能遇到 Windows SmartScreen 提示；請使用本專案 Release 並核對雜湊。仍需要可正常使用的官方 MooshieUI 2.3.49 與 ComfyUI 後端。本套件不是完整 ComfyUI 安裝程式，也**不會自動跨版更新**。四個模組共用同一個已編譯 EXE，並非可以獨立熱插拔的外掛。
 
 ## A：開發者與原始碼安裝
 
@@ -49,7 +49,7 @@ node .\module-manager\install-clean.mjs "C:\path\to\mooshieui-2.3.49-source"
 
 ## 已知依賴與限制
 
-- **Prompt Generator 1.1.0** 的基本服務已內建於 B 版整合 EXE，Node.js 可攜執行元件會由安裝器放在 MooshieUI 主程式旁，不需使用者另裝 Node.js。**但 AI 生成功能、翻譯、列出或測試模型必須另行安裝並啟動 [Ollama](https://ollama.com/download)，且至少備妥一個聊天模型。** 私有 TAG 詞庫不會附在公開安裝包；未提供時只能使用不宣稱 TAG 已驗證的自然英文提示詞。開發者可透過 `MOOSHIEUI_PROMPT_SERVICE` 使用原有自訂服務，也可用 `MOOSHIEUI_PROMPT_TAGS` 指定自己合法持有的 TAG JSON。
+- **Prompt Generator 1.1.1** 的基本服務已內建於 B 版整合 EXE，Node.js 可攜執行元件會由安裝器放在 MooshieUI 主程式旁，不需使用者另裝 Node.js。**但 AI 生成功能、翻譯、列出或測試模型必須另行安裝並啟動 [Ollama](https://ollama.com/download)，且至少備妥一個聊天模型。** 私有 TAG 詞庫不會附在公開安裝包；未提供時只能使用不宣稱 TAG 已驗證的自然英文提示詞。開發者可透過 `MOOSHIEUI_PROMPT_SERVICE` 使用原有自訂服務，也可用 `MOOSHIEUI_PROMPT_TAGS` 指定自己合法持有的 TAG JSON。
 - **Creative Tools** 的部分功能需要 ComfyUI 對應 ControlNet 節點與權重；缺少模型時功能可能無法執行。
 - 本套件基於上游 MooshieUI 2.3.49／AGPL-3.0。請閱讀隨附 `LICENSE`、`NOTICE.md` 及對應完整原始碼；公開發布前仍需確認 TAG 資料的再散布權利。
 - 未在他人電腦完成全套圖像生成功能驗收時，不應宣稱所有功能都已通過實機測試。

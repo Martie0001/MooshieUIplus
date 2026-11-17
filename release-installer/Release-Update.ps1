@@ -76,7 +76,7 @@ if ($sidecarAsset.Count -eq 1) {
     }
   }
   $needsManager = $false
-  $allowedFiles = @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
+  $allowedFiles = @("MooshieUIplus-Manager.exe","Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
   foreach ($name in $allowedFiles) {
     $expected = [string]$updateInfo.managerFiles.$name
     if ($expected -notmatch '^[a-fA-F0-9]{64}$') { throw "更新資訊缺少管理器檔案雜湊：$name" }
@@ -183,7 +183,7 @@ if ($needsExe -or $needsRuntime) {
   }
 }
 if ($updateInfo) {
-  foreach ($name in @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")) {
+  foreach ($name in @("MooshieUIplus-Manager.exe","Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")) {
     $scriptFile = Join-Path $unpacked $name
     if (-not (Test-Path -LiteralPath $scriptFile) -or
         (Get-FileHash -LiteralPath $scriptFile -Algorithm SHA256).Hash -ne [string]$updateInfo.managerFiles.$name) {
@@ -201,7 +201,7 @@ if ($updateInfo) {
   if ($needsManager) {
     $managerBackup = Join-Path $env:LOCALAPPDATA ("MooshieUIplus\history\manager-backups\" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
     New-Item -ItemType Directory -Path $managerBackup -Force | Out-Null
-    $managerNames = @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
+    $managerNames = @("MooshieUIplus-Manager.exe","Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
     foreach ($name in $managerNames) {
       $target = Join-Path $ManagerRoot $name
       if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination (Join-Path $managerBackup $name) }

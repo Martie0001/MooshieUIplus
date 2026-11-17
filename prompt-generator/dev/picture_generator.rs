@@ -11,13 +11,10 @@ fn service_path() -> Option<std::path::PathBuf> {
     if let Some(override_path) = std::env::var_os("MOOSHIEUI_PROMPT_SERVICE") {
         return Some(std::path::PathBuf::from(override_path));
     }
-    // Preserve existing installations that explicitly configured the old app-data service.
-    if let Some(legacy) = crate::config::app_data_dir()
-        .map(|dir| dir.join("addons").join("prompt-generator").join("desktop").join("service.cjs"))
-    {
-        if legacy.is_file() { return Some(legacy); }
-    }
-    None // Default service is embedded in the EXE; no external path is required.
+    // The bundled service is the default on every computer. Do not silently
+    // prefer a legacy app-data service from another installation or drive.
+    // An explicit MOOSHIEUI_PROMPT_SERVICE override remains supported.
+    None
 }
 
 fn node_path() -> std::path::PathBuf {

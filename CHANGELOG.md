@@ -4,11 +4,28 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前為 `0.2.0`（Prompt Generator 可攜版；不代表其他模組全部驗收通過）。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前為 `0.2.1`（PG-001 舊版升級修補與 EXE 模組管理器；不代表其他模組全部驗收通過）。
 - **官方 MooshieUI 版本**：獨立標示上游版本，目前適配 `2.3.49`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
+
+## [0.2.1] — 2026-11-17
+
+**適配：MooshieUI 2.3.49｜Prompt Generator 1.1.1｜Manager 0.2.1**
+
+### 修復
+
+- **PG-001**：預設永遠使用新 EXE 內建服務，不再自動採用舊資料目錄中的 `addons/prompt-generator/desktop/service.cjs`；仍尊重使用者明確設定的 `MOOSHIEUI_PROMPT_SERVICE` 路徑，不刪除舊檔或模型／設定。
+- 將 B 版新安裝器一次安裝整合 EXE、Node.js 可攜 runtime 與授權檔；遠端更新器保留跨版本 SHA256、必要的 manager EXE 校驗。舊版 v0.1.1 自動更新器本身無法回溯修正，舊版使用者請直接以新 B ZIP 的 EXE 管理器執行本地安裝。
+- 模組管理器改用 **`MooshieUIplus-Manager.exe`** 雙擊啟動，不需再找 `.vbs`。啟動器在開啟圖形視窗後立即結束，避免更新管理器時 EXE 被鎖定。
+
+### 相容性與限制
+
+- B ZIP 仍保留舊 `.vbs` 檔案供既有更新器辨識與遷移，但**新使用者入口只使用 `MooshieUIplus-Manager.exe`**；舊版 GitHub Release 不覆寫。
+- 使用提示詞生成與翻譯必須**另外安裝並啟動 Ollama**，至少有一個可呼叫的聊天模型；TAG 私有資料不隨包提供。
+- Windows EXE 管理器為未簽章的 .NET Framework 啟動器，需與隨附管理器腳本放在同一解壓資料夾，非獨立的 MooshieUI／ComfyUI 安裝程式。
+- 其他使用者電腦的實機驗證尚未完成，不宣稱所有環境皆可用。
 
 ## [0.2.0] — 2026-11-17
 

@@ -1,19 +1,19 @@
-# MooshieUIplus v0.2.0｜ModAssistant 風格 GitHub 模組管理器
+# MooshieUIplus v0.2.1｜Windows EXE 圖形模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
-Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
+Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管理器 EXE 由 C#/.NET Framework 編譯，會啟動內附的 Windows PowerShell/WPF 管理介面，**不是單獨的完整主程式安裝包**。該 EXE 未做程式碼簽章，Windows 可能顯示 SmartScreen 警示，請只從本專案 GitHub Release 下載並核對版本。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
 
 ## 日常使用（不需 CMD）
 
-1. 下載 B Windows ZIP，解壓縮後直接雙擊 **`啟動模組管理.vbs`**。不必打開 PowerShell 或 CMD。
+1. 下載 B Windows ZIP，**完整解壓縮**後直接雙擊 **`MooshieUIplus-Manager.exe`**。不必開啟 `.vbs`、PowerShell 或 CMD；不要將 EXE 單獨移出資料夾。
 2. 首次選擇 MooshieUI 的 `comfyui-desktop.exe`，下次會記住選取的位置。
 3. 按下 **「檢查 GitHub 並更新」**，管理器會讀取 GitHub Release 更新資訊，比對本機 EXE 與管理器版本。
 4. 若已是最新版，顯示結果，不下載完整更新包。若有更新，會顯示確認視窗，確認後再下載／安裝。
 5. 若只有管理器改版，優先下載小型管理器 ZIP；若整合 EXE 改版，才下載 B Windows ZIP。下載過的有效 ZIP 保存在本機快取，下次可重用。
 6. EXE 更新前會自動備份，必要時按 **「還原備份」**；有新的管理器時重開管理器即可使用新介面。
 
-**舊 v0.1.1 升級提示：** 首次升級若缺少 Prompt Generator runtime，重開新管理器再執行一次檢查／更新即可補齊，會重用已驗證快取。
+**舊版升級提示：** v0.1.1 的更新器只處理 EXE，不會安裝新的 Prompt Generator runtime。請下載此版 B Windows ZIP，雙擊 `MooshieUIplus-Manager.exe` 並執行「本地套件安裝」，一次完成 EXE 與 runtime 安裝。舊 `啟動模組管理.vbs` 僅為舊版更新器相容保留，不再作為啟動教學入口。
 
 整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準，不能跨版本覆蓋。
 
@@ -21,7 +21,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是
 
 - **只檢查版本：** 讀取 GitHub Release JSON 與小型更新資訊；不下載 ZIP。
 - **相同版本：** 不下載 ZIP。
-- **只有管理器程式變更：** 下載小型管理器 ZIP。
+- **只有管理器程式變更：** 下載小型管理器 ZIP（含新版管理器 EXE）。
 - **整合 EXE 變更：** 下載一次完整 B ZIP；該 ZIP 的檔案大小由 Release 實際內容決定。
 - **相同 ZIP 重裝：** 優先使用雜湊一致的本機快取。
 
@@ -37,7 +37,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是
 
 ## 限制
 
-- Prompt Generator 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
+- Prompt Generator 1.1.1 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
 - Creative Tools 部分功能依賴對應 ComfyUI 節點／模型。
 - TAG 詞庫原始來源與再散布權利仍待進一步釐清；請參閱 `NOTICE.md`。
 - 未完成其他電腦的完整 UI／生圖驗收，不得宣稱所有功能通過。
