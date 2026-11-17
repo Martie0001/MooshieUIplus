@@ -132,6 +132,12 @@
   }
   function removeTag(tag:string){manualTags=manualTags.filter(x=>x!==tag);}
   function appendNote(tag:string) { scratchpad += (scratchpad.trim() ? "\n" : "") + tag; }
+  function selectModel(value: string) {
+    if (!value || value === model) return;
+    model = value;
+    probeStatus = "";
+    translatedText = "";
+  }
   async function copy(text:string) {
     try { await navigator.clipboard.writeText(text);status="已複製至剪貼簿。"; }
     catch(e){error="複製失敗："+String(e);}
@@ -193,14 +199,14 @@
             </label>
             <div class="min-w-0">
               <label class="block text-[11px] text-neutral-400">Ollama 已安裝模型（尚未驗證可生成）
-                <select value={models.some(m=>m.name===model)?model:""} onchange={(e)=>{if(e.currentTarget.value){model=e.currentTarget.value;probeStatus="";}}}
+                <select value={models.some(m=>m.name===model)?model:""} onchange={(e)=>selectModel(e.currentTarget.value)}
                   class="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 p-1.5 text-xs text-neutral-200">
                   <option value="">請選擇模型／使用下方自訂名稱</option>
                   {#each models as m (m.name)}<option value={m.name}>{m.name}</option>{/each}
                 </select>
               </label>
               <div class="mt-1 flex flex-wrap gap-1">
-                <input aria-label="手動輸入 Ollama 模型名稱" bind:value={model} oninput={()=>probeStatus=""} maxlength="180"
+                <input aria-label="手動輸入 Ollama 模型名稱" bind:value={model} oninput={()=>{probeStatus="";translatedText="";}} maxlength="180"
                   placeholder="自訂 Ollama 模型名稱，例如 qwen3:8b" class="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-950 p-1.5 text-xs text-neutral-100" />
                 <button type="button" disabled={loading} onclick={()=>void refreshInputs()} class="rounded border border-neutral-700 px-2 text-xs disabled:opacity-40">刷新清單</button>
                 <button type="button" disabled={probeBusy || !model.trim()} onclick={()=>void probeModel()} class="rounded border border-indigo-500 px-2 text-xs disabled:opacity-40">{probeBusy?"測試中…":"測試呼叫"}</button>
@@ -241,7 +247,18 @@
           <textarea bind:value={scratchpad} rows="5" spellcheck="false" placeholder="筆記、TAG 暫存及提示詞草稿…（自動儲存，與原本筆記獨立）" class="w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 text-xs text-neutral-100"></textarea>
           <div class="text-right"><button type="button" class="text-[11px] text-indigo-300" onclick={()=>void copy(scratchpad)}>複製筆記</button></div>
         {:else if card==="translator"}
-          <p class="mb-2 text-[11px] text-amber-300">即時翻譯使用所選 Ollama 模型；Google 翻譯會另外開啟官方網站，不使用付費 API。</p>
+          <p class="mb-2 text-[11px] text-amber-300">即時翻譯使用下方所選 Ollama 模型；Google 翻譯會另外開啟官方網站，不使用付費 API。</p>
+          <label class="mb-2 block text-[11px] text-neutral-400">Ollama 翻譯模型（與上方雙向同步）
+            <select aria-label="Ollama 翻譯模型" value={models.some(m=>m.name===model)?model:model?"__custom__":""}
+              onchange={(e)=>selectModel(e.currentTarget.value)}
+              class="mt-1 w-full min-w-0 rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200">
+              <option value="" disabled>尚未選擇 Ollama 模型</option>
+              {#if model && !models.some(m=>m.name===model)}
+                <option value="__custom__" disabled>目前自訂：{model}</option>
+              {/if}
+              {#each models as m (m.name)}<option value={m.name}>{m.name}</option>{/each}
+            </select>
+          </label>
           <div class="mb-2 flex items-center gap-2">
             <select bind:value={direction} class="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs">
               <option value="zh-en">繁中 → 英文</option><option value="en-zh">英文 → 繁中</option>
@@ -253,7 +270,7 @@
             <textarea rows="5" readonly value={translatedText} placeholder="真實翻譯結果將顯示於此" class="min-w-0 w-full resize-y rounded border border-neutral-700 bg-neutral-800 p-2 text-xs"></textarea>
           </div>
           <div class="mt-2 flex flex-wrap gap-2">
-            <button type="button" disabled={translating || !sourceText.trim()} onclick={()=>void translate()} class="rounded border border-indigo-500 px-2 py-1 text-xs disabled:opacity-40">{translating?"翻譯中…":"使用 Ollama 翻譯"}</button>
+            <button type="button" disabled={translating || !sourceText.trim() || !model.trim()} onclick={()=>void translate()} class="rounded border border-indigo-500 px-2 py-1 text-xs disabled:opacity-40">{translating?"翻譯中…":"使用 Ollama 翻譯"}</button>
             <a href={googleUrl()} target="_blank" rel="noopener noreferrer" class="rounded border border-neutral-700 px-2 py-1 text-xs text-indigo-300 hover:border-indigo-500">開啟 Google 翻譯 ↗</a>
             <button type="button" onclick={()=>void copy(translatedText)} disabled={!translatedText} class="rounded border border-neutral-700 px-2 py-1 text-xs disabled:opacity-40">複製翻譯</button>
           </div>

@@ -1,6 +1,6 @@
 {
   "id": "prompt-generator",
   "name": "Prompt Generator",
-  "version": "1.1.1",
-  "description": "Prompt Generator 可攜服務內建於 EXE，支援手動 Ollama 模型、即時查詢與呼叫測試。使用前需安裝並啟動 Ollama。"
+  "version": "1.1.2",
+  "description": "Prompt Generator 內建可攜服務，翻譯與提示詞共用 Ollama 模型選擇並雙向同步；支援自訂模型及呼叫測試。需另裝 Ollama。"
 }

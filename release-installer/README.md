@@ -1,4 +1,4 @@
-# MooshieUIplus v0.2.1｜Windows EXE 圖形模組管理器
+# MooshieUIplus v0.2.2｜Windows EXE 圖形模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
@@ -37,7 +37,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 
 ## 限制
 
-- Prompt Generator 1.1.1 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
+- Prompt Generator 1.1.2 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
 - Creative Tools 部分功能依賴對應 ComfyUI 節點／模型。
 - TAG 詞庫原始來源與再散布權利仍待進一步釐清；請參閱 `NOTICE.md`。
 - 未完成其他電腦的完整 UI／生圖驗收，不得宣稱所有功能通過。

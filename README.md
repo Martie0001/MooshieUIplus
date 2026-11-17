@@ -49,7 +49,7 @@ node .\module-manager\install-clean.mjs "C:\path\to\mooshieui-2.3.49-source"
 
 ## 已知依賴與限制
 
-- **Prompt Generator 1.1.1** 的基本服務已內建於 B 版整合 EXE，Node.js 可攜執行元件會由安裝器放在 MooshieUI 主程式旁，不需使用者另裝 Node.js。**但 AI 生成功能、翻譯、列出或測試模型必須另行安裝並啟動 [Ollama](https://ollama.com/download)，且至少備妥一個聊天模型。** 私有 TAG 詞庫不會附在公開安裝包；未提供時只能使用不宣稱 TAG 已驗證的自然英文提示詞。開發者可透過 `MOOSHIEUI_PROMPT_SERVICE` 使用原有自訂服務，也可用 `MOOSHIEUI_PROMPT_TAGS` 指定自己合法持有的 TAG JSON。
+- **Prompt Generator 1.1.2** 的基本服務已內建於 B 版整合 EXE，Node.js 可攜執行元件會由安裝器放在 MooshieUI 主程式旁，不需使用者另裝 Node.js。**但 AI 生成功能、翻譯、列出或測試模型必須另行安裝並啟動 [Ollama](https://ollama.com/download)，且至少備妥一個聊天模型。** 私有 TAG 詞庫不會附在公開安裝包；未提供時只能使用不宣稱 TAG 已驗證的自然英文提示詞。開發者可透過 `MOOSHIEUI_PROMPT_SERVICE` 使用原有自訂服務，也可用 `MOOSHIEUI_PROMPT_TAGS` 指定自己合法持有的 TAG JSON。
 - **Creative Tools** 的部分功能需要 ComfyUI 對應 ControlNet 節點與權重；缺少模型時功能可能無法執行。
 - 本套件基於上游 MooshieUI 2.3.49／AGPL-3.0。請閱讀隨附 `LICENSE`、`NOTICE.md` 及對應完整原始碼；公開發布前仍需確認 TAG 資料的再散布權利。
 - 未在他人電腦完成全套圖像生成功能驗收時，不應宣稱所有功能都已通過實機測試。
