@@ -1,6 +1,6 @@
 {
   "id": "lora-browser",
   "name": "LoRA 瀏覽與管理",
-  "version": "1.4.0",
-  "description": "LoRA 可攜式分類資料夾與預設 ComfyUI 模型路徑，保留分批卡片、延遲縮圖及獨立資訊管理。"
+  "version": "1.5.0",
+  "description": "先讀取模型屬性，再以多重類型、服裝與作品資料夾篩選；主目錄虛擬分類及手動即時覆寫。"
 }

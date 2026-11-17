@@ -9,13 +9,13 @@
   import { ipcInvoke } from "../../utils/ipc.js";
   import type { OutputImage } from "../../types/index.js";
 
-  type LoraType = "style" | "character" | "effect" | "other";
+  type LoraType = "style" | "character" | "clothing" | "effect" | "other";
   type Entry = { types: LoraType[]; tags: string[]; triggerWords: string[]; baseModel: string; notes: string };
   type Catalog = { entries: Record<string, Partial<Entry>>; types: Record<string, LoraType[]> };
   type LoadResult = { entry: Partial<Entry> | null; types: LoraType[] | null };
   const typeOptions: { key: LoraType; label: string }[] = [
     { key: "style", label: "風格" }, { key: "character", label: "角色" },
-    { key: "effect", label: "效果" }, { key: "other", label: "其他" },
+    { key: "clothing", label: "服裝" }, { key: "effect", label: "效果" }, { key: "other", label: "其他" },
   ];
   const call = <T,>(action: string, filename = "", extra: Record<string, unknown> = {}): Promise<T> =>
     ipcInvoke("lora_info_action", { action, filename, ...extra });
@@ -194,7 +194,8 @@
         filename: selected, civitai_images: [], civitai_trigger_words: words,
       });
       clearPreview();
-      status = "資訊已儲存。分類資料已更新；LoRA 主選擇器的編譯期分類會在下次重新套用模組後同步。";
+      window.dispatchEvent(new CustomEvent("mooshieui:lora-category-updated", { detail: { filename: selected, types: [...types] } }));
+      status = "資訊已儲存；LoRA 類型篩選已同步更新。";
       await refreshCatalog();
     } catch (e) { error = String(e); }
     finally { busy = false; }

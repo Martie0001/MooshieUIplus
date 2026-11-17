@@ -205,7 +205,7 @@ $table = New-Object System.Data.DataTable
 foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) { [void]$table.Columns.Add($name,[string]) }
 [void]$table.Columns.Add("Verified",[bool])
 foreach ($item in @(
-  @("LoRA Manager","1.4.0","LoRA 瀏覽、分類與資訊管理"),
+  @("LoRA Manager","1.5.0","LoRA 多重分類、服裝與資料夾篩選"),
   @("TAG Manager","1.0.1","中英 TAG 對照與提示"),
   @("Prompt Generator","1.1.2","提示詞與翻譯模型雙向同步、自訂 Ollama 模型與測試；需另裝 Ollama"),
   @("Creative Tools","0.5.0","擴圖、姿勢、後製與漫畫工具")

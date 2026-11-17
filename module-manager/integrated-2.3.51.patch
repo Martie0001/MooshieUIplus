@@ -1,6 +1,6 @@
 diff --git a/src-tauri/src/commands/lora_info.rs b/src-tauri/src/commands/lora_info.rs
 new file mode 100644
-index 0000000..c361508
+index 0000000..4240a6d
 --- /dev/null
 +++ b/src-tauri/src/commands/lora_info.rs
 @@ -0,0 +1,137 @@
@@ -13,7 +13,7 @@ index 0000000..c361508
 +#[cfg(feature = "desktop")]
 +use tauri::State;
 +
-+const TYPES: &[&str] = &["style", "character", "effect", "other"];
++const TYPES: &[&str] = &["style", "character", "clothing", "effect", "other"];
 +
 +fn read_json(path: &Path, fallback: Value) -> Result<Value, String> {
 +    if !path.exists() { return Ok(fallback); }
@@ -53,7 +53,7 @@ index 0000000..c361508
 +    };
 +    let types = array("types")?;
 +    if types.is_empty() || types.iter().any(|t| !TYPES.contains(&t.as_str())) {
-+        return Err("LoRA 類型只能是 style、character、effect、other，且不可為空".into());
++        return Err("LoRA 類型只能是 style、character、clothing、effect、other，且不可為空".into());
 +    }
 +    let tags = array("tags")?;
 +    let trigger_words = array("triggerWords")?;
@@ -724,10 +724,10 @@ index 0000000..5b3a92f
 +</div>
 diff --git a/src/lib/addons/lora-browser/LoraFilterBar.svelte b/src/lib/addons/lora-browser/LoraFilterBar.svelte
 new file mode 100644
-index 0000000..861ce68
+index 0000000..77d36c4
 --- /dev/null
 +++ b/src/lib/addons/lora-browser/LoraFilterBar.svelte
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,181 @@
 +<script lang="ts">
 +  import { onMount } from "svelte";
 +  import type { LoraFilter, LoraGame } from "./loraCategories.js";
@@ -749,6 +749,7 @@ index 0000000..861ce68
 +    { value: "all", label: "全部" },
 +    { value: "character", label: "角色" },
 +    { value: "style", label: "風格" },
++    { value: "clothing", label: "服裝" },
 +    { value: "effect", label: "效果" },
 +    { value: "other", label: "其他" },
 +  ];
@@ -842,7 +843,7 @@ index 0000000..861ce68
 +
 +  function chooseType(value: LoraFilter) {
 +    activeTab = value;
-+    gameFilter = "";
++    gameFilter = "all";
 +  }
 +</script>
 +
@@ -910,10 +911,10 @@ index 0000000..861ce68
 +</div>
 diff --git a/src/lib/addons/lora-browser/LoraInfoPanel.svelte b/src/lib/addons/lora-browser/LoraInfoPanel.svelte
 new file mode 100644
-index 0000000..f50d7a7
+index 0000000..bf17d59
 --- /dev/null
 +++ b/src/lib/addons/lora-browser/LoraInfoPanel.svelte
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,326 @@
 +<script lang="ts">
 +  import { onMount } from "svelte";
 +  import { models } from "../../stores/models.svelte.js";
@@ -925,13 +926,13 @@ index 0000000..f50d7a7
 +  import { ipcInvoke } from "../../utils/ipc.js";
 +  import type { OutputImage } from "../../types/index.js";
 +
-+  type LoraType = "style" | "character" | "effect" | "other";
++  type LoraType = "style" | "character" | "clothing" | "effect" | "other";
 +  type Entry = { types: LoraType[]; tags: string[]; triggerWords: string[]; baseModel: string; notes: string };
 +  type Catalog = { entries: Record<string, Partial<Entry>>; types: Record<string, LoraType[]> };
 +  type LoadResult = { entry: Partial<Entry> | null; types: LoraType[] | null };
 +  const typeOptions: { key: LoraType; label: string }[] = [
 +    { key: "style", label: "風格" }, { key: "character", label: "角色" },
-+    { key: "effect", label: "效果" }, { key: "other", label: "其他" },
++    { key: "clothing", label: "服裝" }, { key: "effect", label: "效果" }, { key: "other", label: "其他" },
 +  ];
 +  const call = <T,>(action: string, filename = "", extra: Record<string, unknown> = {}): Promise<T> =>
 +    ipcInvoke("lora_info_action", { action, filename, ...extra });
@@ -1110,7 +1111,8 @@ index 0000000..f50d7a7
 +        filename: selected, civitai_images: [], civitai_trigger_words: words,
 +      });
 +      clearPreview();
-+      status = "資訊已儲存。分類資料已更新；LoRA 主選擇器的編譯期分類會在下次重新套用模組後同步。";
++      window.dispatchEvent(new CustomEvent("mooshieui:lora-category-updated", { detail: { filename: selected, types: [...types] } }));
++      status = "資訊已儲存；LoRA 類型篩選已同步更新。";
 +      await refreshCatalog();
 +    } catch (e) { error = String(e); }
 +    finally { busy = false; }
@@ -1253,63 +1255,79 @@ index 0000000..aca6412
 +}
 diff --git a/src/lib/addons/lora-browser/loraCategories.ts b/src/lib/addons/lora-browser/loraCategories.ts
 new file mode 100644
-index 0000000..6ee8938
+index 0000000..608e7a1
 --- /dev/null
 +++ b/src/lib/addons/lora-browser/loraCategories.ts
-@@ -0,0 +1,68 @@
-+/** LoRA type labels are metadata. Folder names are separate selectors and never rename weights. */
+@@ -0,0 +1,84 @@
++/** Type tags and folder selection are independent: a single LoRA can belong to several types. */
 +import config from "./lora-categories.json";
 +import type { LoraCivitaiInfo } from "../../utils/api.js";
 +
-+export type LoraType = "style" | "character" | "effect" | "other";
++export type LoraType = "style" | "character" | "clothing" | "effect" | "other";
 +export type LoraFilter = "all" | LoraType;
 +export type LoraGame = string;
++export const LORA_ROOT_FOLDER = "LoRA（主目錄）";
 +
 +const configured = config.types as Record<string, LoraType[]>;
-+const allowed = new Set<LoraType>(["style", "character", "effect", "other"]);
++const allowed = new Set<LoraType>(["style", "character", "clothing", "effect", "other"]);
++const characterWorks = new Set([
++  "genshin_impact", "zenless_zone_zero", "blue_archive",
++  "arknights_endfield", "limbus_company", "mahou shoujo no majo saiban",
++  "granblue_fantasy", "kancolle",
++]);
 +
 +function folderOf(filename: string): string {
 +  const parts = filename.replace(/\\/g, "/").split("/");
 +  parts.pop();
 +  const parent = parts.at(-1);
-+  return parent && parent !== "Anima" ? parent : "other";
++  // Files directly below the LoRA root (or the Anima root) are a virtual folder.
++  return parent && parent.toLowerCase() !== "anima" ? parent : LORA_ROOT_FOLDER;
 +}
 +
 +export function availableLoraGames(filenames: string[]): LoraGame[] {
-+  return [...new Set(filenames.map(folderOf).filter((folder) => folder !== "other"))]
++  return [...new Set(filenames.map(folderOf))]
 +    .sort((a, b) => a.localeCompare(b));
 +}
 +
 +export function classifyLora(
 +  filename: string,
 +  overrides: Record<string, LoraType[]> = {},
-+  info?: LoraCivitaiInfo | null,
++  info?: Pick<LoraCivitaiInfo, "modelspec_tags"> | null,
 +): { types: LoraType[]; game: LoraGame; inferred: boolean } {
 +  const normalized = filename.replace(/\\/g, "/");
 +  const basename = normalized.split("/").at(-1) ?? normalized;
 +  const game = folderOf(filename);
 +
-+  // User-provided types are authoritative; metadata tags have secondary priority.
++  // Saved user decisions always win, including multi-type combinations.
 +  const override = overrides[normalized] ?? overrides[basename] ??
 +    configured[normalized] ?? configured[basename];
 +  if (override?.some((type) => allowed.has(type))) {
 +    return { types: [...new Set(override.filter((type) => allowed.has(type)))], game, inferred: false };
 +  }
 +
++  // Only explicit type-like ModelSpec tags count as verified classification.
++  const aliases: Record<string, LoraType> = {
++    character: "character", characters: "character",
++    style: "style", styles: "style",
++    clothing: "clothing", clothes: "clothing", costume: "clothing", outfit: "clothing",
++    effect: "effect", effects: "effect", concept: "effect",
++    poses: "effect", pose: "effect", action: "effect",
++  };
 +  const declared = (info?.modelspec_tags ?? "").split(/[;,|]/)
 +    .map((tag) => tag.trim().toLowerCase());
-+  const metadataTypes = [...new Set(declared.filter((tag): tag is LoraType => allowed.has(tag as LoraType)))];
++  const metadataTypes = [...new Set(declared.map((tag) => aliases[tag]).filter((type): type is LoraType => !!type))];
 +  if (metadataTypes.length) return { types: metadataTypes, game, inferred: false };
 +
-+  // Only category-named folders provide a reliable fallback. Work/game folder
-+  // names are not evidence of a character LoRA on another user's machine.
++  // Folder conventions are only fallbacks. Never treat a guessed type as metadata.
 +  const folder = game.toLowerCase();
 +  const guessed: LoraType = folder === "style" || game === "風格"
 +    ? "style"
-+    : folder === "character" || folder === "characters" || game === "角色"
-+      ? "character"
-+      : folder === "effect" || folder === "effects" || game === "效果"
-+        ? "effect" : "other";
++    : folder === "clothing" || folder === "clothes" || folder === "outfit" || game === "服裝"
++      ? "clothing"
++      : folder === "character" || folder === "characters" || game === "角色" || characterWorks.has(folder)
++        ? "character"
++        : folder === "effect" || folder === "effects" || game === "效果"
++          ? "effect" : "other";
 +  return { types: [guessed], game, inferred: true };
 +}
 +
@@ -1318,7 +1336,7 @@ index 0000000..6ee8938
 +  tab: LoraFilter | "",
 +  game: LoraGame | "",
 +  overrides: Record<string, LoraType[]> = {},
-+  info?: LoraCivitaiInfo | null,
++  info?: Pick<LoraCivitaiInfo, "modelspec_tags"> | null,
 +): boolean {
 +  if (!tab || !game) return false;
 +  const result = classifyLora(filename, overrides, info);
@@ -1327,15 +1345,15 @@ index 0000000..6ee8938
 +}
 diff --git a/src/lib/addons/lora-browser/version.json b/src/lib/addons/lora-browser/version.json
 new file mode 100644
-index 0000000..4db425f
+index 0000000..51fee13
 --- /dev/null
 +++ b/src/lib/addons/lora-browser/version.json
 @@ -0,0 +1,6 @@
 +{
 +  "id": "lora-browser",
 +  "name": "LoRA 瀏覽與管理",
-+  "version": "1.4.0",
-+  "description": "LoRA 可攜式分類資料夾與預設 ComfyUI 模型路徑，保留分批卡片、延遲縮圖及獨立資訊管理。"
++  "version": "1.5.0",
++  "description": "先讀取模型屬性，再以多重類型、服裝與作品資料夾篩選；主目錄虛擬分類及手動即時覆寫。"
 +}
 diff --git a/src/lib/addons/prompt-generator/PromptGeneratorPage.svelte b/src/lib/addons/prompt-generator/PromptGeneratorPage.svelte
 new file mode 100644
@@ -3848,7 +3866,7 @@ index ae7dbfe..fb51397 100644
          <CanvasEditor bind:this={canvasEditorRef} />
        </div>
 diff --git a/src/lib/components/generation/LoraGallery.svelte b/src/lib/components/generation/LoraGallery.svelte
-index 082351e..6d1be22 100644
+index 082351e..ee43505 100644
 --- a/src/lib/components/generation/LoraGallery.svelte
 +++ b/src/lib/components/generation/LoraGallery.svelte
 @@ -1,6 +1,8 @@
@@ -3861,16 +3879,17 @@ index 082351e..6d1be22 100644
    import { civitaiModelPageUrl } from "../../utils/civitaiUrl.js";
    import { generation } from "../../stores/generation.svelte.js";
    import { models } from "../../stores/models.svelte.js";
-@@ -11,6 +13,8 @@
+@@ -11,6 +13,9 @@
    import { locale } from "../../stores/locale.svelte.js";
    import {
      civitaiLookupImage,
 +    listModelFiles,
++    readModelSpec,
 +    type ManagedModelFile,
      fetchCachedImage,
      getLoraCivitaiInfo,
      saveModelSidecarThumbnail,
-@@ -28,6 +32,9 @@
+@@ -28,6 +33,9 @@
      type ModelGallerySort,
    } from "../../utils/modelGallerySort.js";
    import ModelPreviewActions from "./ModelPreviewActions.svelte";
@@ -3880,7 +3899,7 @@ index 082351e..6d1be22 100644
  
    interface Props {
      cardSize?: number;
-@@ -77,12 +84,33 @@
+@@ -77,12 +85,36 @@
      return {};
    }
  
@@ -3908,6 +3927,9 @@ index 082351e..6d1be22 100644
 +  let plusActiveTab = $state<LoraFilter | "">("");
 +  let plusGameFilter = $state<LoraGame | "">("");
 +  let categoryOverrides = $state<Record<string, LoraType[]>>({});
++  let modelspecTags = $state<Record<string, string>>({});
++  let modelspecScanScope = "";
++  const scannedModelspec = new Set<string>();
 +  let visibleCount = $state(30);
 +  let visibleLoraNames = $state<Set<string>>(new Set());
 +  let localFilesRequested = false;
@@ -3915,7 +3937,7 @@ index 082351e..6d1be22 100644
    let civitaiImageRef = $state("");
    let civitaiImportBusy = $state(false);
    let sortMode = $state<ModelGallerySort>(
-@@ -96,16 +124,6 @@
+@@ -96,16 +128,6 @@
    let applyMode = $state<LoraPresetApplyMode>("replace");
    let presetStatus = $state<string | null>(null);
    let presetError = $state<string | null>(null);
@@ -3932,7 +3954,7 @@ index 082351e..6d1be22 100644
    let loraInfoAccessBlocked = $state<string | null>(null);
  
    function isAccessDeniedError(message: string): boolean {
-@@ -119,6 +137,78 @@
+@@ -119,6 +141,124 @@
      );
    }
  
@@ -3940,7 +3962,53 @@ index 082351e..6d1be22 100644
 +    try { localStorage.setItem(PANEL_KEY, JSON.stringify({ manager: managerExpanded, local: localExpanded, view: viewMode })); } catch {}
 +  });
 +
-+  onMount(() => { void loadCategoryTypes(); });
++  onMount(() => {
++    void loadCategoryTypes();
++    const onClassificationSaved = (event: Event) => {
++      const { filename, types } = (event as CustomEvent<{ filename: string; types: LoraType[] }>).detail;
++      categoryOverrides = { ...categoryOverrides, [filename.replaceAll("\\", "/")]: types };
++    };
++    window.addEventListener("mooshieui:lora-category-updated", onClassificationSaved);
++    return () => window.removeEventListener("mooshieui:lora-category-updated", onClassificationSaved);
++  });
++
++  // Read all local ModelSpec tags before relying on folder-name fallbacks.
++  // This avoids hashing models or making CivitAI requests for classification.
++  $effect(() => {
++    const scope = models.cacheScope;
++    const names = models.loras;
++    if (!scope || !names.length) return;
++    if (modelspecScanScope !== scope) {
++      modelspecScanScope = scope;
++      scannedModelspec.clear();
++      modelspecTags = {};
++    }
++    const pending = names.filter((name) => !scannedModelspec.has(name));
++    if (!pending.length) return;
++    for (const name of pending) scannedModelspec.add(name);
++    void scanModelspecTags(pending, scope);
++  });
++
++  async function scanModelspecTags(filenames: string[], scope: string) {
++    for (let index = 0; index < filenames.length; index += 6) {
++      const batch = filenames.slice(index, index + 6);
++      const result = await Promise.all(batch.map(async (filename) => {
++        try {
++          const info = await readModelSpec("loras", filename);
++          return [filename, info?.tags ?? ""] as const;
++        } catch (error) {
++          console.warn("Cannot read LoRA ModelSpec tags:", filename, error);
++          return [filename, ""] as const;
++        }
++      }));
++      if (scope !== modelspecScanScope) return;
++      modelspecTags = { ...modelspecTags, ...Object.fromEntries(result) };
++    }
++  }
++
++  function classificationInfo(filename: string) {
++    return { modelspec_tags: modelspecTags[filename] || cache[filename]?.data?.modelspec_tags };
++  }
 +
 +  async function loadCategoryTypes() {
 +    try {
@@ -3998,10 +4066,10 @@ index 082351e..6d1be22 100644
 +    return size == null ? "—" : size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(2)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
 +  }
 +  function localTypes(name: string): string {
-+    const labels = { style: "風格", character: "角色", effect: "效果", other: "其他" };
-+    const result = classifyLora(name, categoryOverrides, cache[name]?.data);
++    const labels: Record<LoraType, string> = { style: "風格", character: "角色", clothing: "服裝", effect: "效果", other: "其他" };
++    const result = classifyLora(name, categoryOverrides, classificationInfo(name));
 +    const names = result.types.map((t) => labels[t]).join(" / ");
-+    return result.inferred ? `${names}（推測）` : names;
++    return result.inferred ? `${names}（${result.types.includes("other") ? "待分類" : "推定"}）` : names;
 +  }
 +  function localBase(name: string): string {
 +    const info = getInfo(name);
@@ -4011,20 +4079,31 @@ index 082351e..6d1be22 100644
    function saveCache() {
      try {
        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-@@ -133,8 +223,11 @@
+@@ -131,10 +271,22 @@
+     } catch {}
+   });
  
++  // Select type first, then offer only folders containing that type.
++  const availableFolders = $derived(availableLoraGames(
++    plusActiveTab
++      ? models.loras.filter((name) => matchesLora(
++          name, plusActiveTab, "all", categoryOverrides, classificationInfo(name),
++        ))
++      : [],
++  ));
++
    // All available LoRAs, filtered by search
    const filteredLoras = $derived(() => {
 +    if (!loadReady) return [];
      const q = searchQuery.toLowerCase().trim();
 -    let list = models.loras;
 +    let list = models.loras.filter((name) =>
-+      matchesLora(name, plusActiveTab, plusGameFilter, categoryOverrides, cache[name]?.data)
++      matchesLora(name, plusActiveTab, plusGameFilter, categoryOverrides, classificationInfo(name))
 +    );
      if (q) {
        list = list.filter((name) => {
          const display = displayName(name).toLowerCase();
-@@ -157,10 +250,22 @@
+@@ -157,10 +309,22 @@
  
    // Folder tree for the "tree" sort mode, built from the already-filtered and
    // enabled-first list so grouping and ordering stay consistent with the grid.
@@ -4048,7 +4127,7 @@ index 082351e..6d1be22 100644
    function toggleFolder(path: string) {
      const next = new Set(collapsedFolders);
      if (next.has(path)) next.delete(path);
-@@ -179,6 +284,23 @@
+@@ -179,6 +343,23 @@
      generation.saveSettings();
    }
  
@@ -4072,7 +4151,7 @@ index 082351e..6d1be22 100644
    function clearPresetMessages() {
      presetStatus = null;
      presetError = null;
-@@ -234,7 +356,7 @@
+@@ -234,7 +415,7 @@
        presetError = locale.t("lora_presets.error.not_found");
        return;
      }
@@ -4081,7 +4160,7 @@ index 082351e..6d1be22 100644
      generation.saveSettings();
      if (result.missingNames.length > 0) {
        presetError = locale.t("lora_presets.applied_missing", { names: result.missingNames.join(", ") });
-@@ -315,11 +437,12 @@
+@@ -315,11 +496,12 @@
      enqueueFetch(filename);
    }
  
@@ -4095,7 +4174,7 @@ index 082351e..6d1be22 100644
            enqueueFetch(filename);
            observer.disconnect();
          }
-@@ -328,7 +451,14 @@
+@@ -328,7 +510,14 @@
      );
      observer.observe(node);
      return {
@@ -4111,7 +4190,7 @@ index 082351e..6d1be22 100644
      };
    }
  
-@@ -479,7 +609,10 @@
+@@ -479,7 +668,10 @@
    }
  
    function addTriggerWord(loraName: string, word: string) {
@@ -4123,7 +4202,7 @@ index 082351e..6d1be22 100644
      generation.saveSettings();
    }
  
-@@ -508,36 +641,27 @@
+@@ -508,36 +700,27 @@
      }
    }
  
@@ -4174,7 +4253,7 @@ index 082351e..6d1be22 100644
      <div class="flex items-center gap-2">
        <select
          bind:value={selectedPresetId}
-@@ -598,10 +722,25 @@
+@@ -598,10 +781,25 @@
      {#if presetError}
        <p class="text-amber-300">{presetError}</p>
      {/if}
@@ -4202,7 +4281,7 @@ index 082351e..6d1be22 100644
    <div class="px-2 pt-1 pb-0.5 shrink-0">
      {#if !civitaiScan.running && !civitaiScan.summary && !civitaiScan.progress}
        <button
-@@ -680,54 +819,49 @@
+@@ -680,54 +878,49 @@
      {/if}
    </div>
  
@@ -4215,7 +4294,7 @@ index 082351e..6d1be22 100644
 -        title={locale.t('model_gallery.sort_tip')}
 -      >
 +  {/if}
-+  <LoraFilterBar bind:activeTab={plusActiveTab} bind:gameFilter={plusGameFilter} games={availableLoraGames(models.loras)} />
++  <LoraFilterBar bind:activeTab={plusActiveTab} bind:gameFilter={plusGameFilter} games={availableFolders} />
 +
 +  <!-- Second toolbar: sort, refresh, local search, then display controls on the right. -->
 +  <div class="shrink-0 px-2 pt-1.5 pb-1 space-y-1">
@@ -4294,7 +4373,7 @@ index 082351e..6d1be22 100644
    </div>
  
    {#if loraInfoAccessBlocked}
-@@ -751,6 +885,10 @@
+@@ -751,9 +944,15 @@
      <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs">
        <p>{locale.t('lora.no_loras')}</p>
      </div>
@@ -4304,8 +4383,14 @@ index 082351e..6d1be22 100644
 +    </div>
    {:else if filteredLoras().length === 0}
      <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs">
-       <p>{locale.t('lora.no_results', { query: searchQuery })}</p>
-@@ -776,7 +914,7 @@
+-      <p>{locale.t('lora.no_results', { query: searchQuery })}</p>
++      <p>{searchQuery.trim()
++        ? locale.t('lora.no_results', { query: searchQuery })
++        : "目前所選的類型及資料夾沒有符合條件的 LoRA。"}</p>
+     </div>
+   {:else}
+     {#snippet loraCard(loraName: string)}
+@@ -776,7 +975,7 @@
            class="aspect-[3/4] flex flex-col rounded-lg border bg-neutral-900/60 overflow-hidden transition-colors cursor-pointer group {enabled
              ? 'border-indigo-500/60 ring-1 ring-indigo-500/20'
              : isSelected ? 'border-neutral-600' : 'border-neutral-800 hover:border-neutral-700'}"
@@ -4314,7 +4399,7 @@ index 082351e..6d1be22 100644
          >
            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
            <!-- Image area -->
-@@ -887,6 +1025,8 @@
+@@ -887,6 +1086,8 @@
                    {displayName(loraName)}
                  </h4>
                </button>
@@ -4323,7 +4408,7 @@ index 082351e..6d1be22 100644
                {#if info?.civitai_model_id}
                  <a
                    href={civitaiModelPageUrl(info.civitai_model_id, info.civitai_nsfw)}
-@@ -948,7 +1088,6 @@
+@@ -948,7 +1149,6 @@
                  {/if}
                </div>
              {/if}
@@ -4331,7 +4416,7 @@ index 082351e..6d1be22 100644
            </div>
          </div>
      {/snippet}
-@@ -984,8 +1123,31 @@
+@@ -984,8 +1184,31 @@
        </div>
      {/snippet}
  
@@ -4365,7 +4450,7 @@ index 082351e..6d1be22 100644
          <div class="space-y-0.5">
            {#each loraTree.folders as folder (folder.path)}
              {@render folderGroup(folder, 0)}
-@@ -1000,11 +1162,100 @@
+@@ -1000,11 +1223,100 @@
          </div>
        {:else}
          <div class="grid gap-2.5" style="grid-template-columns: repeat(auto-fill, minmax({cardSize}px, 1fr));">

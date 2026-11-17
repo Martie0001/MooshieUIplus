@@ -19,6 +19,7 @@
     { value: "all", label: "全部" },
     { value: "character", label: "角色" },
     { value: "style", label: "風格" },
+    { value: "clothing", label: "服裝" },
     { value: "effect", label: "效果" },
     { value: "other", label: "其他" },
   ];
@@ -112,7 +113,7 @@
 
   function chooseType(value: LoraFilter) {
     activeTab = value;
-    gameFilter = "";
+    gameFilter = "all";
   }
 </script>
 

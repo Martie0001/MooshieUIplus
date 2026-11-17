@@ -7,7 +7,7 @@ use crate::state::AppState;
 #[cfg(feature = "desktop")]
 use tauri::State;
 
-const TYPES: &[&str] = &["style", "character", "effect", "other"];
+const TYPES: &[&str] = &["style", "character", "clothing", "effect", "other"];
 
 fn read_json(path: &Path, fallback: Value) -> Result<Value, String> {
     if !path.exists() { return Ok(fallback); }
@@ -47,7 +47,7 @@ fn model_entry(value: &Value) -> Result<Value, String> {
     };
     let types = array("types")?;
     if types.is_empty() || types.iter().any(|t| !TYPES.contains(&t.as_str())) {
-        return Err("LoRA 類型只能是 style、character、effect、other，且不可為空".into());
+        return Err("LoRA 類型只能是 style、character、clothing、effect、other，且不可為空".into());
     }
     let tags = array("tags")?;
     let trigger_words = array("triggerWords")?;
