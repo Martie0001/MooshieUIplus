@@ -10,8 +10,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Windows entry point for the MooshieUIplus module manager")]
 [assembly: AssemblyCompany("MooshieUIplus")]
 [assembly: AssemblyProduct("MooshieUIplus Module Manager")]
-[assembly: AssemblyVersion("0.2.3.0")]
-[assembly: AssemblyFileVersion("0.2.3.0")]
+[assembly: AssemblyVersion("0.2.4.0")]
+[assembly: AssemblyFileVersion("0.2.4.0")]
 
 internal static class ManagerLauncher
 {

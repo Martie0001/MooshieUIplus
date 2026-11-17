@@ -32,7 +32,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
-$managerVersion = "0.2.3"
+$managerVersion = "0.2.4"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
