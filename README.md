@@ -51,4 +51,4 @@ node .\module-manager\install-clean.mjs "C:\path\to\mooshieui-2.3.49-source"
 
 ## GitHub
 
-原始碼：<https://github.com/Martie0001/MooshieUIplus>。發布候選內容準備完成後，需經專案持有人確認才上傳 GitHub 或建立 Release。
+GitHub 原始碼：<https://github.com/Martie0001/MooshieUIplus>。已公開發布：[v2.3.49-plus-rc3](https://github.com/Martie0001/MooshieUIplus/releases/tag/v2.3.49-plus-rc3)（A 原始碼 RC5／B Windows RC3）。後續每次完成模組更新與必要驗收，都應同步 GitHub 原始碼與對應 A/B Release；詳細流程參見 `PUBLISHING.md`。

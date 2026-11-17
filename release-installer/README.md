@@ -40,4 +40,4 @@
 
 本套件基於上游 MooshieUI 2.3.49（AGPL-3.0）。請閱讀 `LICENSE`、`NOTICE.md`。公開發布前仍須確認 TAG 中英詞庫的再散布權利。尚未完成其他電腦的完整 GUI／生圖驗收，不應宣稱全部功能都已驗收通過。
 
-GitHub：<https://github.com/Martie0001/MooshieUIplus>。**目前只是發布候選，沒有授權上傳。**
+GitHub：<https://github.com/Martie0001/MooshieUIplus>。已發布 [v2.3.49-plus-rc3](https://github.com/Martie0001/MooshieUIplus/releases/tag/v2.3.49-plus-rc3)；此候選版本已通過隔離安裝／還原及 GitHub 下載安裝測試，其他電腦的完整 GUI／生圖功能仍未驗證。
