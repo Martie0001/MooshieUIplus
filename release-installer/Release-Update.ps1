@@ -18,7 +18,7 @@ $exeHash = (Get-FileHash -LiteralPath $appExe -Algorithm SHA256).Hash
 $cacheRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\cache\releases"
 if (-not $TempRoot) { $TempRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\temp" }
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
-$releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=30" -Headers $headers -TimeoutSec 25)
+$releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=30" -Headers $headers -TimeoutSec 25
 $selected = $null
 foreach ($release in $releases) {
   if ($release.draft -or $release.prerelease) { continue }
@@ -50,7 +50,10 @@ if ($sidecarAsset.Count -eq 1) {
   if ($sidecarUrl -notmatch '^https://github\.com/Martie0001/MooshieUIplus/releases/download/') {
     throw "GitHub 更新資訊來源不符，拒絕下載。"
   }
-  $updateInfo = Invoke-RestMethod -Uri $sidecarUrl -Headers $headers -TimeoutSec 30
+  $response = Invoke-WebRequest -Uri $sidecarUrl -Headers $headers -UseBasicParsing -TimeoutSec 30
+  $response.RawContentStream.Position = 0
+  $reader = [IO.StreamReader]::new($response.RawContentStream,[Text.Encoding]::UTF8)
+  try { $updateInfo = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
   if ($updateInfo.schemaVersion -ne 1 -or $updateInfo.mooshieuiVersion -ne $baseVersion -or
       $updateInfo.package -ne $fullAsset.name -or
       [string]$updateInfo.payloadSha256 -notmatch '^[a-fA-F0-9]{64}$') {
@@ -181,10 +184,26 @@ if ($updateInfo) {
   if ($needsManager) {
     $managerBackup = Join-Path $env:LOCALAPPDATA ("MooshieUIplus\history\manager-backups\" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
     New-Item -ItemType Directory -Path $managerBackup -Force | Out-Null
-    foreach ($name in @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")) {
+    $managerNames = @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
+    foreach ($name in $managerNames) {
       $target = Join-Path $ManagerRoot $name
       if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination (Join-Path $managerBackup $name) }
-      Copy-Item -LiteralPath (Join-Path $unpacked $name) -Destination $target -Force
+    }
+    try {
+      foreach ($name in $managerNames) {
+        $target = Join-Path $ManagerRoot $name
+        Copy-Item -LiteralPath (Join-Path $unpacked $name) -Destination $target -Force
+        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne [string]$updateInfo.managerFiles.$name) {
+          throw "管理器更新後 SHA256 不一致：$name"
+        }
+      }
+    } catch {
+      foreach ($name in $managerNames) {
+        $target = Join-Path $ManagerRoot $name
+        $saved = Join-Path $managerBackup $name
+        if (Test-Path -LiteralPath $saved) { Copy-Item -LiteralPath $saved -Destination $target -Force }
+      }
+      throw "管理器更新失敗，已還原先前備份：" + $_.Exception.Message
     }
     Write-Output "模組管理器已更新，重新開啟視窗後生效。"
   }

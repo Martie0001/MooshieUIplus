@@ -1,6 +1,6 @@
-# MooshieUIplus｜GitHub 模組管理器
+# MooshieUIplus｜ModAssistant 風格 GitHub 模組管理器
 
-Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
+Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
 
 ## 日常使用（不需 CMD）
 
