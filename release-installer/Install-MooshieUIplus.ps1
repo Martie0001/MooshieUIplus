@@ -35,7 +35,7 @@ if ($Restore) {
       $record = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
       $savedExe = Join-Path $_.DirectoryName "comfyui-desktop.exe"
       $record.appExe -eq $AppExe -and (Test-Path -LiteralPath $savedExe) -and
-        (Get-Item -LiteralPath $savedExe).VersionInfo.ProductVersion -eq $targetVersion
+        (Get-FileHash -LiteralPath $savedExe -Algorithm SHA256).Hash -eq $record.originalSha256
     } | Select-Object -First 1
   if (-not $last) { throw "此 MooshieUI 安裝位置沒有可還原的 EXE 備份。" }
   $source = Join-Path $last.DirectoryName "comfyui-desktop.exe"
@@ -45,7 +45,8 @@ if ($Restore) {
     throw "安裝包缺少 manifest.json 或整合版執行檔。"
   }
   $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($manifest.mooshieuiVersion -ne $targetVersion -or
+  $approvedUpgrade = $targetVersion -in @("2.3.49","2.3.50") -and $manifest.mooshieuiVersion -eq "2.3.51"
+  if ((-not $approvedUpgrade -and $manifest.mooshieuiVersion -ne $targetVersion) -or
       -not $manifest.payloadSha256 -or
       ((Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ne $manifest.payloadSha256)) {
     throw "整合版版本或 SHA256 驗證失敗，未修改任何檔案。"

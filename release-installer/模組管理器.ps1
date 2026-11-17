@@ -32,7 +32,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
-$managerVersion = "0.2.4"
+$managerVersion = "0.3.0"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
@@ -200,12 +200,12 @@ foreach ($n in @("VersionText","IntroNav","ModsNav","AboutNav","OptionsNav","Int
   Set-Variable -Scope Script -Name $n -Value $window.FindName($n)
 }
 $window.Title = "MooshieUIplus v$managerVersion｜模組管理器"
-$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.49`n本版改善 Windows 環境啟動診斷、安裝權限與更新失敗提示；詳見 GitHub 更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
+$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.51`n本版整合 MooshieUI 2.3.51 與右側固定 LoRA 模型瀏覽區；詳見 GitHub 更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
 $table = New-Object System.Data.DataTable
 foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) { [void]$table.Columns.Add($name,[string]) }
 [void]$table.Columns.Add("Verified",[bool])
 foreach ($item in @(
-  @("LoRA Manager","1.3.1","LoRA 瀏覽、分類與資訊管理"),
+  @("LoRA Manager","1.4.0","LoRA 瀏覽、分類與資訊管理"),
   @("TAG Manager","1.0.1","中英 TAG 對照與提示"),
   @("Prompt Generator","1.1.2","提示詞與翻譯模型雙向同步、自訂 Ollama 模型與測試；需另裝 Ollama"),
   @("Creative Tools","0.5.0","擴圖、姿勢、後製與漫畫工具")
@@ -279,7 +279,7 @@ function Refresh-Info {
   if((Test-Path -LiteralPath $manifestFile) -and (Test-Path -LiteralPath $payload)){
     try{
       $m=Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8|ConvertFrom-Json
-      if($m.mooshieuiVersion -eq $version -and (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -eq $m.payloadSha256){
+      if(($m.mooshieuiVersion -eq $version -or ($m.mooshieuiVersion -eq "2.3.51" -and $version -in @("2.3.49","2.3.50"))) -and (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -eq $m.payloadSha256){
         $LocalButton.IsEnabled=$true
         $LocalStatus.Text="已找到本地套件：$($m.release)"
       }else{$LocalStatus.Text="本地套件與 MooshieUI 版本不相容"}

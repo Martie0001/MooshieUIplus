@@ -4,11 +4,41 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前為 `0.2.4`（修復 Windows 管理器更新資訊編碼；不代表其他模組全部驗收通過）。
-- **官方 MooshieUI 版本**：獨立標示上游版本，目前適配 `2.3.49`。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前為 `0.3.0`（整合 MooshieUI 2.3.51；未驗證部分另列）。
+- **官方 MooshieUI 版本**：獨立標示上游版本，目前適配 `2.3.51`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
+
+## [0.3.0] — 2026-11-17
+
+**適配：MooshieUI 2.3.51｜LoRA Manager 1.4.0｜TAG Manager 1.0.1｜Prompt Generator 1.1.2｜Creative Tools 0.5.0｜Manager 0.3.0**
+
+### 新增
+
+- LoRA 保留既有雙排工具列：類型與作品／資料夾同列、排序與更新、搜尋、卡片／清單切換及縮圖大小滑桿。
+- LoRA 左側管理區 70%／右側固定瀏覽區 30%；未選模型時空白，選取後才顯示縮圖、強度、Trigger words 與模型資訊。
+- 保留 v2.3.51 官方 Model／CLIP 連動、觸發詞自動加入／移除與原生 LoRA 設定；原本獨立 LoRA 資訊管理仍保留。
+
+### 修復
+
+- 將四個原有 source-level 模組整合至 MooshieUI 2.3.51，另外保留 2.3.49 修補檔供歷史版本使用。
+- Windows 管理器支援 2.3.49／2.3.50 至 2.3.51 的明確升級路徑，維持備份、SHA256 驗證與還原。
+
+### 已知限制
+
+- 使用者仍需另外安裝並啟動 Ollama，才能使用 Prompt Generator AI 翻譯與生成。
+- v0.2.4 舊管理器只能辨識相同上游版本；首次跨版需使用 v0.3.0 的 Manager ZIP 或 B ZIP。
+- 四張圖佇列及 rustc CPU 問題未在本次實際生圖驗收前宣稱解決；其他電腦環境尚未實測。
+
+### 實際驗證
+
+- 2.3.51 整合原始碼：Svelte 型別檢查 0 errors；Vite 前端建置成功。
+- 完整整合補丁於另一份乾淨的 v2.3.51 原始碼通過 git apply --check。
+- Rust／Tauri v2.3.51 正式 EXE 編譯成功，Windows A／B／Manager 三個 ZIP 與更新 JSON 已產出 SHA256；B 安裝器對正式 2.3.49 的跨版唯讀預檢通過。
+- 本機升級完成後確認 EXE ProductVersion 2.3.51、SHA256 與 B 包相同，Manager FileVersion 0.3.0.0；MooshieUI 主視窗可啟動並回應，ComfyUI 後端健康檢查 HTTP 200。
+- LoRA 實際滑桿／篩選／Trigger words 與多圖佇列尚未完成真實 GUI／生圖驗收；跨機全新安裝及還原分支未實測。
+
 
 ## [0.2.4] — 2026-11-17
 

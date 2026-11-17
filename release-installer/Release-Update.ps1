@@ -25,9 +25,13 @@ $selected = $null
 foreach ($release in ($releases | Sort-Object -Property published_at -Descending)) {
   if ($release.draft -or $release.prerelease) { continue }
   foreach ($asset in @($release.assets)) {
-    if ($asset.name -match '^MooshieUIplus-B-Windows-(\d+\.\d+\.\d+)(?:-[A-Za-z0-9._-]+)?\.zip$' -and $Matches[1] -eq $baseVersion) {
-      $selected = [pscustomobject]@{ release=$release; asset=$asset }
-      break
+    if ($asset.name -match '^MooshieUIplus-B-Windows-(\d+\.\d+\.\d+)(?:-[A-Za-z0-9._-]+)?\.zip$') {
+      $offeredBase = [string]$Matches[1]
+      $approvedUpgrade = $offeredBase -eq "2.3.51" -and $baseVersion -in @("2.3.49","2.3.50")
+      if ($offeredBase -eq $baseVersion -or $approvedUpgrade) {
+        $selected = [pscustomobject]@{ release=$release; asset=$asset; targetBaseVersion=$offeredBase }
+        break
+      }
     }
   }
   if ($selected) { break }
@@ -40,6 +44,7 @@ if (-not $selected) {
 }
 $release = $selected.release
 $fullAsset = $selected.asset
+$targetBaseVersion = [string]$selected.targetBaseVersion
 $tag = [string]$release.tag_name
 $sidecarName = [IO.Path]::GetFileNameWithoutExtension([string]$fullAsset.name) + ".update.json"
 $sidecarAsset = @($release.assets | Where-Object { $_.name -eq $sidecarName } | Select-Object -First 1)
@@ -57,7 +62,7 @@ if ($sidecarAsset.Count -eq 1) {
   $response.RawContentStream.Position = 0
   $reader = [IO.StreamReader]::new($response.RawContentStream,[Text.Encoding]::UTF8)
   try { $updateInfo = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
-  if ($updateInfo.schemaVersion -ne 1 -or $updateInfo.mooshieuiVersion -ne $baseVersion -or
+  if ($updateInfo.schemaVersion -ne 1 -or $updateInfo.mooshieuiVersion -ne $targetBaseVersion -or
       $updateInfo.package -ne $fullAsset.name -or
       [string]$updateInfo.payloadSha256 -notmatch '^[a-fA-F0-9]{64}$') {
     throw "GitHub 更新資訊版本或校驗資料有誤。"
@@ -111,6 +116,7 @@ $result = [ordered]@{
   status = if ($needsExe -or $needsManager -or $needsRuntime) { "available" } else { "current" }
   action = $Action
   baseVersion = $baseVersion
+  targetBaseVersion = $targetBaseVersion
   release = $tag
   assetName = [string]$fullAsset.name
   needsExe = $needsExe
@@ -204,7 +210,7 @@ if ($needsExe -or $needsRuntime) {
     throw "發布版缺少預編譯 EXE 或安裝資訊。"
   }
   $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($manifest.mooshieuiVersion -ne $baseVersion -or
+  if ($manifest.mooshieuiVersion -ne $targetBaseVersion -or
       -not $manifest.payloadSha256 -or
       (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ne $manifest.payloadSha256) {
     throw "預編譯 EXE 版本或 SHA256 不符合。"
