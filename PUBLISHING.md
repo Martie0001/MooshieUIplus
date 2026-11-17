@@ -16,7 +16,7 @@
 ## 同步順序
 
 1. 確認正式 MooshieUI 主版本與改動範圍，不跨版覆蓋；保留本機原始模型、設定及輸出。
-2. 更新模組來源並完成必要建置、目標功能與安裝／還原測試，未測試部分明確列為「未驗證」。
+2. 更新模組來源並以 Tauri 正式模式建置（`tauri build --no-bundle --ci`），確認 Cargo 本次建置輸出不含 `cargo:rustc-cfg=dev`，再啟動實際 EXE 確認 **完整介面內容正常顯示**，不能只以視窗存在、程序回應或 ComfyUI HTTP 200 宣告通過。完成目標功能與安裝／還原的必要測試；未測試部分明確列為「未驗證」。
 3. 建立同一上游版本的 **A 整合原始碼 ZIP**、**B 已編譯 Windows ZIP**、**Manager 小型 ZIP（含 `MooshieUIplus-Manager.exe`）** 與 **B 更新資訊 JSON**。B `sourcePackage` 必須指向 A ZIP，`payloadSha256` 符合 EXE；更新資訊需對應本次 B ZIP、EXE、Node.js 可攜 runtime、原始授權檔、管理器 `MooshieUIplus-Manager.exe` 與各檔 SHA256。
 4. 確認檔案不包含私人模型權重、使用者私有設定、個人資料、金鑰、密碼或暫存歷史；必要的小型授權節點權重須列於 NOTICE 並附原始授權檔；檢查第三方素材授權及 README／NOTICE。
 5. 將新的 `module-manager/`、四個模組來源、`release-installer/`、`README.md`、`LICENSE`、`NOTICE.md` 同步到 GitHub 預設分支。

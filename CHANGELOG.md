@@ -4,11 +4,20 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前開發版本為 `0.3.3`（整合 MooshieUI 2.3.51；驗證狀態依下列項目）。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前開發版本為 `0.3.4`（整合 MooshieUI 2.3.51；驗證狀態依下列項目）。
 - **官方 MooshieUI 版本**：獨立標示上游版本，目前適配 `2.3.51`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
+
+## [0.3.4] — 2026-11-17
+
+**緊急修復：正式 EXE 誤以 Tauri 開發模式建置，導致桌面視窗顯示 `localhost` / `ERR_CONNECTION_REFUSED`，無法載入操作介面。**
+
+- v0.3.3 公開 B Windows 套件的 EXE（SHA256：`F74B3A321A55DAEAB9E52A4BE86BA924328FFD1B7AA3893B5668900ED2654157`）的 Cargo 建置輸出含 `cargo:rustc-cfg=dev`；Windows 有視窗不代表功能正常。
+- 改用 Tauri 正式建置流程重新產生 EXE，並在封裝時阻止 `cfg(dev)` 建置產物或相同故障雜湊被重新發布。
+- 管理器版號提升至 0.3.4；LoRA Manager 1.5.0、TAG Manager 1.0.1、Prompt Generator 1.1.2、Creative Tools 0.5.0 保持不變。
+- **實際驗證：** Rust release 建置 ExitCode 0，新 Cargo 建置輸出不含 `cfg(dev)`；本機已備份原版 EXE 並替換，使用 Win32 PrintWindow 直接擷取新 EXE 的真實視窗，確認工作分頁、尺寸、提示詞、生成按鈕已呈現，不再是 `ERR_CONNECTION_REFUSED`。ComfyUI 生圖佇列當時為空；實際生圖與其他電腦乾淨安裝尚未驗證。
 
 ## [0.3.3] — 2026-11-17
 

@@ -21,6 +21,7 @@ if not exist "%VCVARS%" (
 call "%VCVARS%" >nul
 if errorlevel 1 exit /b 5
 set "AWS_LC_SYS_PREBUILT_NASM=1"
+set "TAURI_ENV=production"
 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 pushd "%SOURCE%"
 call "node_modules\.bin\tauri.cmd" build --no-bundle --ci
