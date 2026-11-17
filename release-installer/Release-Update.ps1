@@ -45,6 +45,7 @@ $managerAsset = $null
 $updateInfo = $null
 $needsExe = $true
 $needsManager = $true
+$needsRuntime = $false
 if ($sidecarAsset.Count -eq 1) {
   $sidecarUrl = [string]$sidecarAsset[0].browser_download_url
   if ($sidecarUrl -notmatch '^https://github\.com/Martie0001/MooshieUIplus/releases/download/') {
@@ -60,6 +61,20 @@ if ($sidecarAsset.Count -eq 1) {
     throw "GitHub 更新資訊版本或校驗資料有誤。"
   }
   $needsExe = $exeHash -ne [string]$updateInfo.payloadSha256
+  if ($updateInfo.promptRuntimeSha256) {
+    $runtimeDir = Join-Path (Split-Path -Parent $appExe) "MooshieUIplus\PromptGenerator"
+    foreach ($item in @(
+      [pscustomobject]@{name="node.exe";hash=[string]$updateInfo.promptRuntimeSha256},
+      [pscustomobject]@{name="NODE-LICENSE.txt";hash=[string]$updateInfo.promptRuntimeLicenseSha256}
+    )) {
+      if ($item.hash -notmatch '^[a-fA-F0-9]{64}$') { throw "GitHub 更新資料缺少 Node.js 執行元件雜湊。" }
+      $target = Join-Path $runtimeDir $item.name
+      if (-not (Test-Path -LiteralPath $target) -or
+          (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $item.hash) {
+        $needsRuntime = $true
+      }
+    }
+  }
   $needsManager = $false
   $allowedFiles = @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
   foreach ($name in $allowedFiles) {
@@ -71,7 +86,7 @@ if ($sidecarAsset.Count -eq 1) {
       $needsManager = $true
     }
   }
-  if ($needsManager -and -not $needsExe) {
+  if ($needsManager -and -not $needsExe -and -not $needsRuntime) {
     $managerAssetName = [string]$updateInfo.managerAsset
     $managerAsset = @($release.assets | Where-Object { $_.name -eq $managerAssetName } | Select-Object -First 1)
     if ($managerAsset.Count -ne 1 -or $managerAssetName -notmatch '^MooshieUIplus-Manager-[a-zA-Z0-9._-]+\.zip$') {
@@ -91,21 +106,22 @@ if ($sidecarAsset.Count -eq 1) {
   }
 }
 $result = [ordered]@{
-  status = if ($needsExe -or $needsManager) { "available" } else { "current" }
+  status = if ($needsExe -or $needsManager -or $needsRuntime) { "available" } else { "current" }
   action = $Action
   baseVersion = $baseVersion
   release = $tag
   assetName = [string]$fullAsset.name
   needsExe = $needsExe
   needsManager = $needsManager
-  message = if ($needsExe -or $needsManager) { "GitHub 有相容更新：$tag" } else { "已是最新版本：$tag，不需下載。" }
+  needsRuntime = $needsRuntime
+  message = if ($needsExe -or $needsManager -or $needsRuntime) { "GitHub 有相容更新：$tag" } else { "已是最新版本：$tag，不需下載。" }
 }
 if ($Action -eq "Check" -or $result.status -eq "current") {
   if ($ResultFile) { $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 }
   Write-Output $result.message
   exit 0
 }
-if ($needsExe -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
+if (($needsExe -or $needsRuntime) -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
   throw "MooshieUI 仍在執行，請關閉後再替換 EXE。"
 }
 $asset = if ($managerAsset) { $managerAsset } else { $fullAsset }
@@ -150,7 +166,7 @@ try {
 } finally { $archive.Dispose() }
 Expand-Archive -LiteralPath $cacheFile -DestinationPath $unpacked
 $manifest = $null
-if ($needsExe) {
+if ($needsExe -or $needsRuntime) {
   $manifestPath = Join-Path $unpacked "manifest.json"
   $payload = Join-Path $unpacked "payload\comfyui-desktop.exe"
   if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $payload)) {
@@ -175,8 +191,9 @@ if ($updateInfo) {
     }
   }
 }
-if ($needsExe) {
-  $installer = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "Install-MooshieUIplus.ps1"
+if ($needsExe -or $needsRuntime) {
+  # Use the verified installer from this release: an older manager may not know about portable runtime files.
+  $installer = Join-Path $unpacked "Install-MooshieUIplus.ps1"
   & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $installer -AppExe $appExe -PackageRoot $unpacked
   if ($LASTEXITCODE -ne 0) { throw "預編譯 EXE 安裝失敗。"}
 }

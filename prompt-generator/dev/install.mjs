@@ -7,6 +7,7 @@ const folder = path.dirname(fileURLToPath(import.meta.url));
 const source = path.resolve(process.argv[2] ?? path.join(folder,"../../source"));
 const ui = path.join(source,"src/lib/addons/prompt-generator/PromptGeneratorPage.svelte");
 const rust = path.join(source,"src-tauri/src/commands/picture_generator.rs");
+const service = path.join(source,"src-tauri/src/commands/service.cjs");
 const bottom = path.join(source,"src/lib/components/generation/BottomPanel.svelte");
 const version = JSON.parse(fs.readFileSync(path.join(source, "package.json"), "utf8")).version;
 const patch = path.join(folder, ["2.3.43", "2.3.44", "2.3.45"].includes(version) ? "integration-v2.3.43.patch" : "integration.patch");
@@ -20,5 +21,6 @@ if(!existing) {
 fs.mkdirSync(path.dirname(ui),{recursive:true});
 fs.copyFileSync(path.join(folder,"PromptGeneratorPage.svelte"),ui);
 fs.copyFileSync(path.join(folder,"picture_generator.rs"),rust);
+fs.copyFileSync(path.join(folder,"service.cjs"),service);
 fs.copyFileSync(path.join(folder,"version.json"),path.join(path.dirname(ui),"version.json"));
-console.log("Prompt Generator integration installed. Service is configurable via MOOSHIEUI_PROMPT_SERVICE or MooshieUI app data.");
+console.log("Prompt Generator integration installed with built-in portable service; B runtime is packaged separately.");

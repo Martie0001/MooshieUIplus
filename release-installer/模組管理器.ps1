@@ -12,7 +12,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
-$managerVersion = "0.1.1"
+$managerVersion = "0.2.0"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
@@ -131,7 +131,7 @@ Add-Type -AssemblyName System.Windows.Forms
      <TextBlock x:Name="AboutVersion" Margin="0,20,0,8" TextWrapping="Wrap" LineHeight="27"
                 Text="版本資訊載入中"/>
      <TextBlock TextWrapping="Wrap" Foreground="#A65237" Margin="0,10,0,0"
-                Text="已知問題：Prompt Generator 需外部服務，目前不提供即裝即用的生成服務。修正狀態請參閱 GitHub CHANGELOG。"/>
+                Text="Prompt Generator 已內建可攜服務；使用 AI 生成與翻譯之前，仍需另行安裝並啟動 Ollama，且至少下載一個聊天模型。"/>
      <Button x:Name="ChangelogButton" Width="176" Height="34" HorizontalAlignment="Left"
              Margin="0,12,0,0" Content="查看版本更新紀錄"/>
      <Separator Margin="0,17,0,15"/>
@@ -180,14 +180,14 @@ foreach ($n in @("VersionText","IntroNav","ModsNav","AboutNav","OptionsNav","Int
   Set-Variable -Scope Script -Name $n -Value $window.FindName($n)
 }
 $window.Title = "MooshieUIplus v$managerVersion｜模組管理器"
-$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.49`n本版新增版本顯示及各模組版本欄位；詳細修正與已知問題可點選下方更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
+$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.49`n本版修復 Prompt Generator 可攜服務與 Ollama 模型選擇；詳細修正見 GitHub 更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
 $table = New-Object System.Data.DataTable
 foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) { [void]$table.Columns.Add($name,[string]) }
 [void]$table.Columns.Add("Verified",[bool])
 foreach ($item in @(
   @("LoRA Manager","1.3.1","LoRA 瀏覽、分類與資訊管理"),
   @("TAG Manager","1.0.1","中英 TAG 對照與提示"),
-  @("Prompt Generator","1.0.2","提示詞與外部服務整合（需另外部署服務）"),
+  @("Prompt Generator","1.1.0","可攜提示詞服務、Ollama 模型自訂與測試；需安裝 Ollama"),
   @("Creative Tools","0.5.0","擴圖、姿勢、後製與漫畫工具")
 )) {
   $row = $table.NewRow()
@@ -247,7 +247,12 @@ function Refresh-Info {
       $verified=$s.appExe -eq $script:appExe -and $s.exeSha256 -eq $hash
     }catch{}
   }
-  foreach($r in $table.Rows){$r["Installed"]=if($verified){"已整合"}else{"尚未確認"};$r["Verified"]=$verified}
+  $runtimeReady=Test-Path -LiteralPath (Join-Path (Split-Path -Parent $script:appExe) "MooshieUIplus\PromptGenerator\node.exe")
+  foreach($r in $table.Rows){
+    $ready=$verified -and ($r["Name"] -ne "Prompt Generator" -or $runtimeReady)
+    $r["Installed"]=if($ready){"已整合"}elseif($verified -and $r["Name"] -eq "Prompt Generator"){"待補執行元件"}else{"尚未確認"}
+    $r["Verified"]=$ready
+  }
   $UpdateButton.IsEnabled=Test-Path -LiteralPath $remote
   $RestoreButton.IsEnabled=Has-Backup $script:appExe
   $LocalStatus.Text="未找到本地整合包，可直接使用 GitHub 更新"
@@ -301,7 +306,7 @@ $timer.Add_Tick({
     $Status.Text=$result.message
     if($result.release){foreach($r in $table.Rows){$r["Latest"]=[string]$result.release}}
     if($result.status -eq "available"){
-      $detail=if($result.needsExe){"將下載完整整合 EXE。"}else{"只會更新管理器。"}
+      $detail=if($result.needsExe){"將下載完整整合 EXE。"}elseif($result.needsRuntime){"將下載 B 套件補齊 Prompt Generator 可攜執行元件。"}else{"只會更新管理器。"}
       if([System.Windows.MessageBox]::Show("找到 $($result.release)：$detail 是否安裝？","確認更新","YesNo","Question") -eq "Yes"){
         Start-Worker "Update";return
       }

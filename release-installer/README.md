@@ -1,6 +1,6 @@
-# MooshieUIplus v0.1.1｜ModAssistant 風格 GitHub 模組管理器
+# MooshieUIplus v0.2.0｜ModAssistant 風格 GitHub 模組管理器
 
-模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。請注意 Prompt Generator 仍需外部服務，並非只安裝 B ZIP 就能直接生成。
+模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
 Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
 
@@ -12,6 +12,8 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是
 4. 若已是最新版，顯示結果，不下載完整更新包。若有更新，會顯示確認視窗，確認後再下載／安裝。
 5. 若只有管理器改版，優先下載小型管理器 ZIP；若整合 EXE 改版，才下載 B Windows ZIP。下載過的有效 ZIP 保存在本機快取，下次可重用。
 6. EXE 更新前會自動備份，必要時按 **「還原備份」**；有新的管理器時重開管理器即可使用新介面。
+
+**舊 v0.1.1 升級提示：** 首次升級若缺少 Prompt Generator runtime，重開新管理器再執行一次檢查／更新即可補齊，會重用已驗證快取。
 
 整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準，不能跨版本覆蓋。
 
@@ -35,7 +37,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是
 
 ## 限制
 
-- Prompt Generator 的外部服務、TAG 私有資料與 Ollama 不會隨 B ZIP 自動配置。
+- Prompt Generator 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
 - Creative Tools 部分功能依賴對應 ComfyUI 節點／模型。
 - TAG 詞庫原始來源與再散布權利仍待進一步釐清；請參閱 `NOTICE.md`。
 - 未完成其他電腦的完整 UI／生圖驗收，不得宣稱所有功能通過。

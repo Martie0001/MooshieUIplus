@@ -24,6 +24,9 @@
   let models = $state<OllamaModel[]>([]);
   let agentPath = $state("");
   let model = $state("");
+  let probeBusy = $state(false);
+  let probeStatus = $state("");
+  let ollamaNotice = $state("");
   let mode = $state("anima");
   let request = $state("");
   let result = $state<PromptResult | null>(null);
@@ -72,14 +75,32 @@
     } catch {}
   });
   async function refreshInputs() {
-    loading = true; error = "";
+    loading = true; error = ""; ollamaNotice = ""; probeStatus = "";
     try {
-      const [a,m] = await Promise.all([call<Agent[]>("agents"),call<OllamaModel[]>("models")]);
-      agents=a; models=m;
-      if (!agents.some(x=>x.path===agentPath)) agentPath=agents[0]?.path ?? "";
-      if (!models.some(x=>x.name===model)) model=models[0]?.name ?? "";
-    } catch(e) { error=String(e); }
-    finally { loading=false; }
+      const [a,m] = await Promise.allSettled([call<Agent[]>("agents"),call<OllamaModel[]>("models")]);
+      if (a.status === "fulfilled") {
+        agents = a.value;
+        if (!agents.some(x=>x.path===agentPath)) agentPath=agents[0]?.path ?? "";
+      } else error = "無法取得 AGENT："+String(a.reason);
+      if (m.status === "fulfilled") {
+        models = m.value;
+        if (!model.trim()) model=models[0]?.name ?? "";
+        ollamaNotice = `已從 Ollama 讀取 ${models.length} 個可選模型（尚未逐一測試生成）。`;
+      } else {
+        models = [];
+        ollamaNotice = "無法讀取 Ollama："+String(m.reason)+"。可自行輸入模型名稱，啟動 Ollama 後再測試。";
+      }
+    } finally { loading=false; }
+  }
+  async function probeModel() {
+    if (!model.trim() || probeBusy) return;
+    probeBusy=true;probeStatus="";
+    try {
+      const selected=model.trim();
+      await call<{model:string;callable:boolean}>("probe",{model:selected});
+      probeStatus=`${selected} 已透過 Ollama /api/chat 成功回傳文字。`;
+    } catch(e) {probeStatus="模型呼叫測試失敗："+String(e);}
+    finally {probeBusy=false;}
   }
   async function generate() {
     if (!request.trim() || !model || !agentPath || generating) return;
@@ -170,15 +191,25 @@
                 {#each agents as agent (agent.path)}<option value={agent.path}>{agent.name}</option>{/each}
               </select>
             </label>
-            <div class="flex items-end gap-1">
-              <label class="min-w-0 flex-1 text-[11px] text-neutral-400">Ollama AI 模型
-                <select bind:value={model} class="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 p-1.5 text-xs text-neutral-200">
+            <div class="min-w-0">
+              <label class="block text-[11px] text-neutral-400">Ollama 已安裝模型（尚未驗證可生成）
+                <select value={models.some(m=>m.name===model)?model:""} onchange={(e)=>{if(e.currentTarget.value){model=e.currentTarget.value;probeStatus="";}}}
+                  class="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 p-1.5 text-xs text-neutral-200">
+                  <option value="">請選擇模型／使用下方自訂名稱</option>
                   {#each models as m (m.name)}<option value={m.name}>{m.name}</option>{/each}
                 </select>
               </label>
-              <button type="button" disabled={loading} onclick={()=>void refreshInputs()} class="rounded border border-neutral-700 p-1.5 text-xs" title="更新模型及 AGENT">⟳</button>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <input aria-label="手動輸入 Ollama 模型名稱" bind:value={model} oninput={()=>probeStatus=""} maxlength="180"
+                  placeholder="自訂 Ollama 模型名稱，例如 qwen3:8b" class="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-950 p-1.5 text-xs text-neutral-100" />
+                <button type="button" disabled={loading} onclick={()=>void refreshInputs()} class="rounded border border-neutral-700 px-2 text-xs disabled:opacity-40">刷新清單</button>
+                <button type="button" disabled={probeBusy || !model.trim()} onclick={()=>void probeModel()} class="rounded border border-indigo-500 px-2 text-xs disabled:opacity-40">{probeBusy?"測試中…":"測試呼叫"}</button>
+              </div>
             </div>
           </div>
+          <p class="mt-2 text-[11px] text-neutral-400">使用本功能前須另行 <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="text-indigo-300 underline">安裝 Ollama</a> 並啟動服務。B 版已內附所需的執行元件，不需安裝 Node.js 或編譯工具。</p>
+          {#if ollamaNotice}<p class="mt-1 text-[11px] text-amber-300">{ollamaNotice}</p>{/if}
+          {#if probeStatus}<p role="status" class="mt-1 text-[11px] text-indigo-300">{probeStatus}</p>{/if}
           <label class="mt-2 block text-[11px] text-neutral-400">繪圖模型／提示詞格式
             <select bind:value={mode} class="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 p-1.5 text-xs text-neutral-200">
               {#each modes as m}<option value={m.value}>{m.label}</option>{/each}
