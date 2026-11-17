@@ -28,7 +28,11 @@ $targetVersion = (Get-Item -LiteralPath $AppExe).VersionInfo.ProductVersion
 if (-not $targetVersion) { throw "無法辨識 MooshieUI 版本。" }
 
 $runtimeFiles = @()
-$runtimeTarget = Join-Path (Split-Path -Parent $AppExe) "MooshieUIplus\PromptGenerator"
+$appRoot = Split-Path -Parent $AppExe
+$runtimeTarget = Join-Path $appRoot "MooshieUIplus\PromptGenerator"
+$nodeTarget = Join-Path $appRoot "MooshieUIplus\ComfyNodes"
+$launcherTarget = Join-Path $appRoot "ensure_backend.ps1"
+$nodeFiles = @()
 if ($Restore) {
   $last = Get-ChildItem -LiteralPath $backupRoot -Filter "backup.json" -Recurse -File -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Where-Object {
@@ -65,6 +69,29 @@ if ($Restore) {
       }
     }
   }
+  if ($manifest.comfyNodeManifestSha256) {
+    $nodeManifest = Join-Path $packageRoot 'payload\ComfyNodes\comfy-nodes.json'
+    $launcherSource = Join-Path $packageRoot 'payload\ensure_backend.ps1'
+    if (-not (Test-Path -LiteralPath $nodeManifest) -or
+        (Get-FileHash -LiteralPath $nodeManifest -Algorithm SHA256).Hash -ne [string]$manifest.comfyNodeManifestSha256 -or
+        -not (Test-Path -LiteralPath $launcherSource) -or
+        (Get-FileHash -LiteralPath $launcherSource -Algorithm SHA256).Hash -ne [string]$manifest.ensureBackendSha256) {
+      throw 'ComfyUI 節點資訊或啟動器檔案校驗失敗。'
+    }
+    $nodeMap = (Get-Content -LiteralPath $nodeManifest -Raw -Encoding UTF8 | ConvertFrom-Json).files
+    foreach ($entry in $nodeMap.PSObject.Properties) {
+      $nodeFiles += [pscustomobject]@{ name=$entry.Name; hash=[string]$entry.Value }
+    }
+    $nodeFiles += [pscustomobject]@{ name='comfy-nodes.json';hash=[string]$manifest.comfyNodeManifestSha256 }
+    foreach ($item in $nodeFiles) {
+      $path = Join-Path $packageRoot ('payload\ComfyNodes\' + $item.name)
+      if ($item.hash -notmatch '^[a-fA-F0-9]{64}$' -or
+          -not (Test-Path -LiteralPath $path) -or
+          (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $item.hash) {
+        throw ('ComfyUI 節點檔案缺少或 SHA256 不符：' + $item.name)
+      }
+    }
+  }
   $source = $payload
   $expected = [string]$manifest.payloadSha256
 }
@@ -79,8 +106,21 @@ foreach ($item in $runtimeFiles) {
     $needsRuntime = $true
   }
 }
+$needsNodes = $false
+foreach ($item in $nodeFiles) {
+  $path = Join-Path $nodeTarget $item.name
+  if (-not (Test-Path -LiteralPath $path) -or
+      (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $item.hash) {
+    $needsNodes = $true
+  }
+}
+if ($nodeFiles.Count -gt 0 -and
+    (-not (Test-Path -LiteralPath $launcherTarget) -or
+     (Get-FileHash -LiteralPath $launcherTarget -Algorithm SHA256).Hash -ne [string]$manifest.ensureBackendSha256)) {
+  $needsNodes = $true
+}
 Write-Output "已確認 MooshieUI $targetVersion，路徑：$AppExe"
-if (-not $needsExe -and -not $needsRuntime) { Write-Output "目前執行檔與 Prompt Generator 執行元件均已是指定版本。"; exit 0 }
+if (-not $needsExe -and -not $needsRuntime -and -not $needsNodes) { Write-Output "執行檔、Prompt Generator 與 ComfyUI 節點包均已是指定版本。"; exit 0 }
 if ($VerifyOnly) { Write-Output "驗證完成：版本與安裝包及執行元件檢查通過，未修改正式程式。"; exit 0 }
 if (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue) {
   throw "MooshieUI 仍在執行中。請先關閉程式再安裝／還原。"
@@ -135,11 +175,41 @@ if ($needsRuntime) {
     }
   }
 }
+$nodePrevious = @{}
+if ($needsNodes) {
+  foreach ($item in $nodeFiles) {
+    $path = Join-Path $nodeTarget $item.name
+    if (Test-Path -LiteralPath $path) {
+      $saved = Join-Path $backupFolder ('node-' + $item.name)
+      Copy-Item -LiteralPath $path -Destination $saved -ErrorAction Stop
+      $nodePrevious[$item.name] = $saved
+    } else { $nodePrevious[$item.name] = $null }
+  }
+  if (Test-Path -LiteralPath $launcherTarget) {
+    $saved = Join-Path $backupFolder 'ensure_backend.ps1'
+    Copy-Item -LiteralPath $launcherTarget -Destination $saved -ErrorAction Stop
+    $nodePrevious['ensure_backend.ps1'] = $saved
+  } else { $nodePrevious['ensure_backend.ps1'] = $null }
+}
 try {
   if ($needsExe) {
     Copy-Item -LiteralPath $source -Destination $AppExe -Force -ErrorAction Stop
     if ((Get-FileHash -LiteralPath $AppExe -Algorithm SHA256).Hash -ne $expected) {
       throw "安裝後 EXE 校驗失敗。"
+    }
+  }
+  if ($needsNodes) {
+    New-Item -ItemType Directory -Path $nodeTarget -Force | Out-Null
+    foreach ($item in $nodeFiles) {
+      $target = Join-Path $nodeTarget $item.name
+      Copy-Item -LiteralPath (Join-Path $packageRoot ('payload\ComfyNodes\' + $item.name)) -Destination $target -Force -ErrorAction Stop
+      if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $item.hash) {
+        throw ('ComfyUI 節點包安裝校驗失敗：' + $item.name)
+      }
+    }
+    Copy-Item -LiteralPath (Join-Path $packageRoot 'payload\ensure_backend.ps1') -Destination $launcherTarget -Force -ErrorAction Stop
+    if ((Get-FileHash -LiteralPath $launcherTarget -Algorithm SHA256).Hash -ne [string]$manifest.ensureBackendSha256) {
+      throw 'ComfyUI 啟動器安裝校驗失敗。'
     }
   }
   if ($needsRuntime) {
@@ -166,6 +236,23 @@ try {
       }
     }
   }
+  if ($needsNodes) {
+    foreach ($item in $nodeFiles) {
+      $target = Join-Path $nodeTarget $item.name
+      if ($nodePrevious[$item.name]) {
+        Copy-Item -LiteralPath $nodePrevious[$item.name] -Destination $target -Force
+      } elseif (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
+    }
+    if ($nodePrevious['ensure_backend.ps1']) {
+      Copy-Item -LiteralPath $nodePrevious['ensure_backend.ps1'] -Destination $launcherTarget -Force
+    } elseif (Test-Path -LiteralPath $launcherTarget) { Remove-Item -LiteralPath $launcherTarget -Force }
+  }
   throw "安裝失敗，已還原本次變動：" + $_.Exception.Message
 }
-Write-Output "MooshieUIplus 已安裝。Prompt Generator 執行元件位於：$runtimeTarget；使用此功能前仍需安裝並啟動 Ollama。"
+if ($needsNodes -and (Test-Path -LiteralPath (Join-Path $appRoot 'data\config.json'))) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcherTarget -RepairOnly
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning '節點資源已更新，但執行中的 ComfyUI 尚未重新載入；請確認佇列空閒後重新啟動。'
+  }
+}
+Write-Output "MooshieUIplus 已安裝。Prompt Generator 執行元件位於：$runtimeTarget；使用此功能前仍需安裝並啟動 Ollama."

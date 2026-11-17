@@ -1,4 +1,4 @@
-# MooshieUIplus v0.3.0｜Windows EXE 圖形模組管理器
+# MooshieUIplus v0.3.1｜Windows EXE 圖形模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
@@ -10,10 +10,10 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 2. 首次選擇 MooshieUI 的 `comfyui-desktop.exe`，下次會記住選取的位置。
 3. 按下 **「檢查 GitHub 並更新」**，管理器會讀取 GitHub Release 更新資訊，比對本機 EXE 與管理器版本。
 4. 若已是最新版，顯示結果，不下載完整更新包。若有更新，會顯示確認視窗，確認後再下載／安裝。
-5. 若只有管理器改版，優先下載小型管理器 ZIP；若整合 EXE 改版，才下載 B Windows ZIP。下載過的有效 ZIP 保存在本機快取，下次可重用。
+5. 若只有管理器改版，優先下載小型管理器 ZIP；若整合 EXE 或 ComfyUI 節點包改版，才下載 B Windows ZIP。下載過的有效 ZIP 保存在本機快取，下次可重用。
 6. EXE 更新前會自動備份，必要時按 **「還原備份」**；有新的管理器時重開管理器即可使用新介面。
 
-**舊版升級提示：** v0.2.4 或更早的更新器無法自動偵測 2.3.51 跨版更新，請先使用 v0.3.0 管理器。 v0.1.1 的更新器只處理 EXE，不會安裝新的 Prompt Generator runtime。請下載此版 B Windows ZIP，雙擊 `MooshieUIplus-Manager.exe` 並執行「本地套件安裝」，一次完成 EXE 與 runtime 安裝。舊 `啟動模組管理.vbs` 僅為舊版更新器相容保留，不再作為啟動教學入口。
+**舊版升級提示：** v0.2.4 或更早的更新器無法自動偵測 2.3.51 跨版更新，請先使用 v0.3.1 管理器。 v0.1.1 的更新器只處理 EXE，不會安裝新的 Prompt Generator runtime。請下載此版 B Windows ZIP，雙擊 `MooshieUIplus-Manager.exe` 並執行「本地套件安裝」，一次完成 EXE 與 runtime 安裝。舊 `啟動模組管理.vbs` 僅為舊版更新器相容保留，不再作為啟動教學入口。
 
 整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準；僅允許 2.3.49／2.3.50 → 2.3.51 的明確升級路徑，不允許任意跨版覆蓋。
 
@@ -22,7 +22,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 - **只檢查版本：** 讀取 GitHub Release JSON 與小型更新資訊；不下載 ZIP。
 - **相同版本：** 不下載 ZIP。
 - **只有管理器程式變更：** 下載小型管理器 ZIP（含新版管理器 EXE）。
-- **整合 EXE 變更：** 下載一次完整 B ZIP；該 ZIP 的檔案大小由 Release 實際內容決定。
+- **整合 EXE 或 ComfyUI 節點包／本地啟動器變更：** 下載一次完整 B ZIP；該 ZIP 的檔案大小由 Release 實際內容決定。
 - **相同 ZIP 重裝：** 優先使用雜湊一致的本機快取。
 
 快取：`%LOCALAPPDATA%\MooshieUIplus\cache\releases`。操作日誌：`%LOCALAPPDATA%\MooshieUIplus\temp`。備份：`%LOCALAPPDATA%\MooshieUIplus\history`。
@@ -45,7 +45,8 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 ## 限制
 
 - Prompt Generator 1.1.2 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
-- Creative Tools 部分功能依賴對應 ComfyUI 節點／模型。
+- B ZIP 已附 2.3.51 所需的 MooshieUI 三個新增節點及授權檔（含 CC0-1.0 的小型 SkinContrast 權重）。本地 ComfyUI 的節點同步只處理已設定的本機目錄；外部遠端服務不會被任意修改。新版啟動器會檢查節點是否真正載入，而非只看 HTTP 200。
+- Creative Tools 部分功能仍依賴額外 ComfyUI 節點／模型。
 - TAG 詞庫原始來源與再散布權利仍待進一步釐清；請參閱 `NOTICE.md`。
 - 未完成其他電腦的完整 UI／生圖驗收，不得宣稱所有功能通過。
 

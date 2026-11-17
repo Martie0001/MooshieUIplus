@@ -53,6 +53,7 @@ $updateInfo = $null
 $needsExe = $true
 $needsManager = $true
 $needsRuntime = $false
+$needsNodes = $false
 if ($sidecarAsset.Count -eq 1) {
   $sidecarUrl = [string]$sidecarAsset[0].browser_download_url
   if ($sidecarUrl -notmatch '^https://github\.com/Martie0001/MooshieUIplus/releases/download/') {
@@ -82,6 +83,23 @@ if ($sidecarAsset.Count -eq 1) {
       }
     }
   }
+  if ($updateInfo.comfyNodeFiles) {
+    $assetsDir = Join-Path (Split-Path -Parent $appExe) 'MooshieUIplus\ComfyNodes'
+    foreach ($entry in $updateInfo.comfyNodeFiles.PSObject.Properties) {
+      if ([string]$entry.Value -notmatch '^[a-fA-F0-9]{64}$') { throw 'GitHub 更新資訊缺少 ComfyUI 節點 SHA256。' }
+      $target = Join-Path $assetsDir $entry.Name
+      if (-not (Test-Path -LiteralPath $target) -or
+          (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne [string]$entry.Value) {
+        $needsNodes = $true
+      }
+    }
+    $launcher = Join-Path (Split-Path -Parent $appExe) 'ensure_backend.ps1'
+    if ([string]$updateInfo.ensureBackendSha256 -notmatch '^[a-fA-F0-9]{64}$' -or
+        -not (Test-Path -LiteralPath $launcher) -or
+        (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash -ne [string]$updateInfo.ensureBackendSha256) {
+      $needsNodes = $true
+    }
+  }
   $needsManager = $false
   $allowedFiles = @("MooshieUIplus-Manager.exe","Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
   foreach ($name in $allowedFiles) {
@@ -93,7 +111,7 @@ if ($sidecarAsset.Count -eq 1) {
       $needsManager = $true
     }
   }
-  if ($needsManager -and -not $needsExe -and -not $needsRuntime) {
+  if ($needsManager -and -not $needsExe -and -not $needsRuntime -and -not $needsNodes) {
     $managerAssetName = [string]$updateInfo.managerAsset
     $managerAsset = @($release.assets | Where-Object { $_.name -eq $managerAssetName } | Select-Object -First 1)
     if ($managerAsset.Count -ne 1 -or $managerAssetName -notmatch '^MooshieUIplus-Manager-[a-zA-Z0-9._-]+\.zip$') {
@@ -113,7 +131,7 @@ if ($sidecarAsset.Count -eq 1) {
   }
 }
 $result = [ordered]@{
-  status = if ($needsExe -or $needsManager -or $needsRuntime) { "available" } else { "current" }
+  status = if ($needsExe -or $needsManager -or $needsRuntime -or $needsNodes) { "available" } else { "current" }
   action = $Action
   baseVersion = $baseVersion
   targetBaseVersion = $targetBaseVersion
@@ -122,14 +140,15 @@ $result = [ordered]@{
   needsExe = $needsExe
   needsManager = $needsManager
   needsRuntime = $needsRuntime
-  message = if ($needsExe -or $needsManager -or $needsRuntime) { "GitHub 有相容更新：$tag" } else { "已是最新版本：$tag，不需下載。" }
+  needsNodes = $needsNodes
+  message = if ($needsExe -or $needsManager -or $needsRuntime -or $needsNodes) { "GitHub 有相容更新：$tag" } else { "已是最新版本：$tag，不需下載。" }
 }
 if ($Action -eq "Check" -or $result.status -eq "current") {
   if ($ResultFile) { $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 }
   Write-Output $result.message
   exit 0
 }
-if (($needsExe -or $needsRuntime) -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
+if (($needsExe -or $needsRuntime -or $needsNodes) -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
   throw "MooshieUI 仍在執行，請關閉後再替換 EXE。"
 }
 # On protected directories, request UAC before any file replacement. A declined UAC is a visible failure.
@@ -140,7 +159,7 @@ $protectedRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW64
 $protectedDestination = $false
 foreach ($base in $protectedRoots) {
   $prefix = [IO.Path]::GetFullPath($base).TrimEnd('\') + '\'
-  if ((($needsExe -or $needsRuntime) -and $appExe.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) -or
+  if ((($needsExe -or $needsRuntime -or $needsNodes) -and $appExe.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) -or
       ($needsManager -and $ManagerRoot.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase))) {
     $protectedDestination = $true
     break
@@ -203,7 +222,7 @@ try {
 } finally { $archive.Dispose() }
 Expand-Archive -LiteralPath $cacheFile -DestinationPath $unpacked
 $manifest = $null
-if ($needsExe -or $needsRuntime) {
+if ($needsExe -or $needsRuntime -or $needsNodes) {
   $manifestPath = Join-Path $unpacked "manifest.json"
   $payload = Join-Path $unpacked "payload\comfyui-desktop.exe"
   if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $payload)) {
@@ -228,7 +247,7 @@ if ($updateInfo) {
     }
   }
 }
-if ($needsExe -or $needsRuntime) {
+if ($needsExe -or $needsRuntime -or $needsNodes) {
   # Use the verified installer from this release: an older manager may not know about portable runtime files.
   $installer = Join-Path $unpacked "Install-MooshieUIplus.ps1"
   & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $installer -AppExe $appExe -PackageRoot $unpacked

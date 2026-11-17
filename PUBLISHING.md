@@ -18,12 +18,12 @@
 1. 確認正式 MooshieUI 主版本與改動範圍，不跨版覆蓋；保留本機原始模型、設定及輸出。
 2. 更新模組來源並完成必要建置、目標功能與安裝／還原測試，未測試部分明確列為「未驗證」。
 3. 建立同一上游版本的 **A 整合原始碼 ZIP**、**B 已編譯 Windows ZIP**、**Manager 小型 ZIP（含 `MooshieUIplus-Manager.exe`）** 與 **B 更新資訊 JSON**。B `sourcePackage` 必須指向 A ZIP，`payloadSha256` 符合 EXE；更新資訊需對應本次 B ZIP、EXE、Node.js 可攜 runtime、原始授權檔、管理器 `MooshieUIplus-Manager.exe` 與各檔 SHA256。
-4. 確認檔案不包含模型權重、使用者私有設定、個人資料、金鑰、密碼或暫存歷史；檢查第三方素材授權及 README／NOTICE。
+4. 確認檔案不包含私人模型權重、使用者私有設定、個人資料、金鑰、密碼或暫存歷史；必要的小型授權節點權重須列於 NOTICE 並附原始授權檔；檢查第三方素材授權及 README／NOTICE。
 5. 將新的 `module-manager/`、四個模組來源、`release-installer/`、`README.md`、`LICENSE`、`NOTICE.md` 同步到 GitHub 預設分支。
 6. 在 GitHub 建立新的版本標籤，附上同一輪 A／B ZIP、Manager 小型 ZIP、B 更新資訊 JSON。列出實際測試範圍、已知限制與 SHA256；不得覆蓋舊 Release。
 7. 以 GitHub 實際 API 重新讀取 commit、Release 與附件，確認對外可見且 A/B 對應正確，才回報「已發布」。
 
-**不得在沒有實際上傳證據時宣稱 GitHub 已同步。** 正式管理器的「檢查 GitHub 並更新」先讀取小型 JSON，比對 EXE／管理器雜湊；相同版本不抓 ZIP，只有管理器變更下載 Manager ZIP，有 EXE 變更才下載 B ZIP。下載包透過 SHA256 驗證並保留快取；安裝必須有使用者確認，不靜默升版。管理器程式更新後重新開啟視窗即生效，正式 EXE 更新前自動備份。
+**不得在沒有實際上傳證據時宣稱 GitHub 已同步。** 正式管理器的「檢查 GitHub 並更新」先讀取小型 JSON，比對 EXE／管理器雜湊；相同版本不抓 ZIP，只有管理器變更下載 Manager ZIP，有 EXE、節點包或啟動器變更才下載 B ZIP。下載包透過 SHA256 驗證並保留快取；安裝必須有使用者確認，不靜默升版。管理器程式更新後重新開啟視窗即生效，正式 EXE 更新前自動備份。
 
 ## A 與 B 的差異
 
