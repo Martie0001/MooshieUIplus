@@ -1,5 +1,5 @@
 ﻿{
-    "release":  "v0.3.1",
+    "release":  "v0.3.2",
     "package":  "A-full-source",
     "mooshieuiVersion":  "2.3.51",
     "upstreamCommit":  "40daf5eb2b2e51a53b04cfd522ea3ad508d1b2c6",
@@ -10,5 +10,5 @@
                     "prompt-generator 1.1.2",
                     "creative-tools 0.5.0"
                 ],
-    "suiteVersion":  "0.3.1"
+    "suiteVersion":  "0.3.2"
 }
