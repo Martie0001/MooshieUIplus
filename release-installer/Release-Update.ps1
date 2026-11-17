@@ -20,7 +20,7 @@ if (-not $TempRoot) { $TempRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\tem
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=30" -Headers $headers -TimeoutSec 25
 $selected = $null
-foreach ($release in $releases) {
+foreach ($release in ($releases | Sort-Object -Property published_at -Descending)) {
   if ($release.draft -or $release.prerelease) { continue }
   foreach ($asset in @($release.assets)) {
     if ($asset.name -match '^MooshieUIplus-B-Windows-(\d+\.\d+\.\d+)(?:-[A-Za-z0-9._-]+)?\.zip$' -and $Matches[1] -eq $baseVersion) {

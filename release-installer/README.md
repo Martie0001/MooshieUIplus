@@ -1,4 +1,4 @@
-# MooshieUIplus v0.1.0｜ModAssistant 風格 GitHub 模組管理器
+# MooshieUIplus v0.1.1｜ModAssistant 風格 GitHub 模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。請注意 Prompt Generator 仍需外部服務，並非只安裝 B ZIP 就能直接生成。
 
