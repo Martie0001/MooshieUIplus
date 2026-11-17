@@ -4,6 +4,8 @@
 
 Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAssistant) 的 WPF 模組清單與側邊導覽介面，透過 `.vbs` 直接啟動（不需 CMD）；原專案依 MIT 授權，保留著作權聲明與授權全文於管理器程式，並於 NOTICE 中標示來源。
 
+**MooshieUIplus 產品版本從 `0.1.0` 起單獨管理**，與官方 MooshieUI `2.3.49` 及各模組版次分開。歷次新增、修復與未解決問題請見 [`CHANGELOG.md`](CHANGELOG.md)。
+
 ## 下載哪個檔案？
 
 | 版本 | 對象 | 建置工具 | 安裝方式 |

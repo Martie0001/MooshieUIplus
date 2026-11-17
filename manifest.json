@@ -1,5 +1,5 @@
 ﻿{
-    "release":  "RC7",
+    "release":  "v0.1.0",
     "package":  "A-full-source",
     "mooshieuiVersion":  "2.3.49",
     "upstreamCommit":  "8d04a331762197ed0ee76e759534040b621a98d4",
@@ -9,5 +9,6 @@
                     "tag-manager 1.0.1",
                     "prompt-generator 1.0.2",
                     "creative-tools 0.5.0"
-                ]
+                ],
+    "suiteVersion":  "0.1.0"
 }

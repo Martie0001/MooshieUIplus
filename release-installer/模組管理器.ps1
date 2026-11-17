@@ -12,6 +12,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
+$managerVersion = "0.1.0"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
@@ -116,9 +117,10 @@ Add-Type -AssemblyName System.Windows.Forms
         </DataTemplate></GridViewColumn.CellTemplate>
        </GridViewColumn>
        <GridViewColumn Header="模組名稱" Width="165" DisplayMemberBinding="{Binding Name}"/>
-       <GridViewColumn Header="安裝" Width="100" DisplayMemberBinding="{Binding Installed}"/>
-       <GridViewColumn Header="最新整合版" Width="155" DisplayMemberBinding="{Binding Latest}"/>
-       <GridViewColumn Header="說明" Width="300" DisplayMemberBinding="{Binding Description}"/>
+       <GridViewColumn Header="安裝" Width="95" DisplayMemberBinding="{Binding Installed}"/>
+       <GridViewColumn Header="模組版次" Width="95" DisplayMemberBinding="{Binding ModuleVersion}"/>
+       <GridViewColumn Header="整合包版次" Width="135" DisplayMemberBinding="{Binding Latest}"/>
+       <GridViewColumn Header="說明" Width="260" DisplayMemberBinding="{Binding Description}"/>
       </GridView></ListView.View>
      </ListView>
      <TextBlock Grid.Row="3" Margin="4,10,4,5" Foreground="#667688"
@@ -126,8 +128,12 @@ Add-Type -AssemblyName System.Windows.Forms
     </Grid>
     <StackPanel x:Name="AboutPage" Margin="24" Visibility="Collapsed">
      <TextBlock FontSize="21" FontWeight="SemiBold" Text="關於 MooshieUIplus"/>
-     <TextBlock Margin="0,20,0,8" TextWrapping="Wrap" LineHeight="27"
-                Text="整合模組：LoRA Manager、TAG Manager、Prompt Generator、Creative Tools。&#10;更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"/>
+     <TextBlock x:Name="AboutVersion" Margin="0,20,0,8" TextWrapping="Wrap" LineHeight="27"
+                Text="版本資訊載入中"/>
+     <TextBlock TextWrapping="Wrap" Foreground="#A65237" Margin="0,10,0,0"
+                Text="已知問題：Prompt Generator 需外部服務，目前不提供即裝即用的生成服務。修正狀態請參閱 GitHub CHANGELOG。"/>
+     <Button x:Name="ChangelogButton" Width="176" Height="34" HorizontalAlignment="Left"
+             Margin="0,12,0,0" Content="查看版本更新紀錄"/>
      <Separator Margin="0,17,0,15"/>
      <TextBlock FontWeight="SemiBold" Text="介面來源及授權"/>
      <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" LineHeight="24"
@@ -170,20 +176,22 @@ Add-Type -AssemblyName System.Windows.Forms
 '@
 $reader = [System.Xml.XmlNodeReader]::new($ui)
 $window = [Windows.Markup.XamlReader]::Load($reader)
-foreach ($n in @("VersionText","IntroNav","ModsNav","AboutNav","OptionsNav","IntroPage","ModsPage","AboutPage","OptionsPage","AppVersionText","ModList","PickButton","ExePath","Detected","LocalButton","LocalStatus","Status","Progress","InfoButton","RestoreButton","UpdateButton")) {
+foreach ($n in @("VersionText","IntroNav","ModsNav","AboutNav","OptionsNav","IntroPage","ModsPage","AboutPage","OptionsPage","AboutVersion","ChangelogButton","AppVersionText","ModList","PickButton","ExePath","Detected","LocalButton","LocalStatus","Status","Progress","InfoButton","RestoreButton","UpdateButton")) {
   Set-Variable -Scope Script -Name $n -Value $window.FindName($n)
 }
+$window.Title = "MooshieUIplus v$managerVersion｜模組管理器"
+$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.49`n本版新增版本顯示及各模組版本欄位；詳細修正與已知問題可點選下方更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
 $table = New-Object System.Data.DataTable
-foreach ($name in @("Name","Installed","Latest","Description")) { [void]$table.Columns.Add($name,[string]) }
+foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) { [void]$table.Columns.Add($name,[string]) }
 [void]$table.Columns.Add("Verified",[bool])
 foreach ($item in @(
-  @("LoRA Manager","LoRA 瀏覽、分類與資訊管理"),
-  @("TAG Manager","中英 TAG 對照與提示"),
-  @("Prompt Generator","提示詞與外部服務整合"),
-  @("Creative Tools","擴圖、姿勢、後製與漫畫工具")
+  @("LoRA Manager","1.3.1","LoRA 瀏覽、分類與資訊管理"),
+  @("TAG Manager","1.0.1","中英 TAG 對照與提示"),
+  @("Prompt Generator","1.0.2","提示詞與外部服務整合（需另外部署服務）"),
+  @("Creative Tools","0.5.0","擴圖、姿勢、後製與漫畫工具")
 )) {
   $row = $table.NewRow()
-  $row["Name"]=$item[0];$row["Description"]=$item[1]
+  $row["Name"]=$item[0];$row["ModuleVersion"]=$item[1];$row["Description"]=$item[2]
   $row["Installed"]="尚未確認";$row["Latest"]="尚未取得";$row["Verified"]=$false
   $table.Rows.Add($row)
 }
@@ -222,9 +230,9 @@ function Refresh-Info {
   }
   $ExePath.Text=$script:appExe
   $version=(Get-Item -LiteralPath $script:appExe).VersionInfo.ProductVersion
-  $AppVersionText.Text="主程式：$version"
+  $AppVersionText.Text="主程式：$version｜管理器：v$managerVersion"
   $Detected.Text="目前版本：$version"
-  $VersionText.Text="MooshieUIplus $version"
+  $VersionText.Text="MooshieUIplus v$managerVersion / MooshieUI $version"
   $hash=(Get-FileHash -LiteralPath $script:appExe -Algorithm SHA256).Hash
   $verified=$false
   if(Test-Path -LiteralPath $manifestFile){
@@ -308,6 +316,9 @@ $IntroNav.Add_Click({Show-Page "Intro"})
 $ModsNav.Add_Click({Show-Page "Mods"})
 $AboutNav.Add_Click({Show-Page "About"})
 $OptionsNav.Add_Click({Show-Page "Options"})
+$ChangelogButton.Add_Click({
+  Start-Process "https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md"
+})
 $InfoButton.Add_Click({
   if(-not $ModList.SelectedItem){[System.Windows.MessageBox]::Show("請先選取一個模組。","模組資訊","OK","Information")|Out-Null;return}
   $item=$ModList.SelectedItem

@@ -1,4 +1,6 @@
-# MooshieUIplus｜ModAssistant 風格 GitHub 模組管理器
+# MooshieUIplus v0.1.0｜ModAssistant 風格 GitHub 模組管理器
+
+模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。請注意 Prompt Generator 仍需外部服務，並非只安裝 B ZIP 就能直接生成。
 
 Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
 
