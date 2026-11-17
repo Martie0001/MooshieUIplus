@@ -1,0 +1,6 @@
+{
+  "id": "tag-zh-tw",
+  "name": "TAG 中文對照",
+  "version": "1.0.1",
+  "description": "英文標籤搜尋顯示繁體中文別名，提示詞維持英文 canonical TAG。"
+}

@@ -1,0 +1,1629 @@
+﻿diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
+index ee97ae0..d19712f 100644
+--- a/src-tauri/src/commands/mod.rs
++++ b/src-tauri/src/commands/mod.rs
+@@ -1,4 +1,5 @@
+ pub mod api;
++pub mod lora_info;
+ #[cfg(feature = "desktop")]
+ pub mod cloud;
+ #[cfg(feature = "desktop")]
+@@ -19,6 +20,8 @@ pub mod novelai;
+ #[cfg(feature = "desktop")]
+ pub mod prompt_assistant;
+ #[cfg(feature = "desktop")]
++pub mod picture_generator;
++#[cfg(feature = "desktop")]
+ pub mod server;
+ pub mod splat;
+ pub mod video_drafts;
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index f3abe95..cf5fcf8 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -644,6 +644,8 @@ pub fn run() {
+             });
+         })
+         .invoke_handler(tauri::generate_handler![
++            commands::picture_generator::picture_generator_action,
++            commands::lora_info::lora_info_action,
+             commands::server::start_comfyui,
+             commands::server::stop_comfyui,
+             commands::server::kill_port_process,
+diff --git a/src-tauri/src/templates/controlnet.rs b/src-tauri/src/templates/controlnet.rs
+index 425561e..e3a8cb4 100644
+--- a/src-tauri/src/templates/controlnet.rs
++++ b/src-tauri/src/templates/controlnet.rs
+@@ -312,6 +312,21 @@ pub fn build_preprocessor_preview_workflow(image: &str, preprocessor: &str) -> V
+         (preprocess_id, 0)
+     };
+ 
++    // The OpenPose preprocessor also returns the actual detected keypoints on
++    // output 1. PreviewAny exposes these as text in ComfyUI history, allowing
++    // creative-tools to load editable positions without guessing from pixels.
++    if preprocessor == "OpenposePreprocessor" {
++        let preview_id = next_id.to_string();
++        workflow.insert(
++            preview_id,
++            json!({
++                "class_type": "PreviewAny",
++                "inputs": { "source": [image_source.0.clone(), 1] }
++            }),
++        );
++        next_id += 1;
++    }
++
+     append_preprocessor_preview_save(&mut workflow, &mut next_id, &image_source);
+ 
+     Value::Object(workflow)
+diff --git a/src-tauri/src/webserver.rs b/src-tauri/src/webserver.rs
+index adc1699..6b5ea0d 100644
+--- a/src-tauri/src/webserver.rs
++++ b/src-tauri/src/webserver.rs
+@@ -628,6 +628,7 @@ const MODERATOR_COMMANDS: &[&str] = &[
+     "unload_llm",
+     // writes `{stem}.png` next to a shared model file, which every account sees
+     "save_model_sidecar_thumbnail",
++    "lora_info_action",
+     // downloads the shared watermark models (about 65 MB) onto the host
+     "prepare_watermark",
+ ];
+@@ -5170,6 +5171,28 @@ async fn dispatch_command(
+             let val: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+             Ok(val)
+         }
++        "lora_info_action" => {
++            let action = args["action"].as_str().ok_or("Missing action")?;
++            let filename = args["filename"].as_str().ok_or("Missing filename")?;
++            let entry = args.get("entry").cloned();
++            let image_bytes = if let Some(items) = args.get("imageBytes").or_else(|| args.get("image_bytes")).and_then(|v| v.as_array()) {
++                if items.len() > 15 * 1024 * 1024 { return Err("封面圖片過大".into()); }
++                let mut bytes = Vec::with_capacity(items.len());
++                for v in items {
++                    let n = v.as_u64().filter(|n| *n <= 255).ok_or("Invalid image bytes")?;
++                    bytes.push(n as u8);
++                }
++                Some(bytes)
++            } else { None };
++            let gallery_filename = args.get("galleryFilename").or_else(|| args.get("gallery_filename")).and_then(|v| v.as_str());
++            let gallery_dir = if gallery_filename.is_some() {
++                Some(user_gallery_dir(username).ok_or("Cannot find gallery directory")?)
++            } else { None };
++            commands::lora_info::lora_info_action_inner(
++                state.as_ref(), action, filename, entry, image_bytes,
++                gallery_filename, gallery_dir.as_deref()
++            ).await
++        }
+         "save_model_sidecar_thumbnail" => {
+             let category = args["category"]
+                 .as_str()
+diff --git a/src/App.svelte b/src/App.svelte
+index 37ca44e..bd13018 100644
+--- a/src/App.svelte
++++ b/src/App.svelte
+@@ -827,6 +827,18 @@
+   // The open page, shared by both layouts: the phone shell binds to it too, so
+   // every "go to Generate" below works there as well.
+   let currentPage = $state<PrimaryPage>("generate");
++  let creativeHandoff = $state<{ id: number; image: OutputImage; tool: "reference" | "outpaint" | "pose" | "postprocess"; kind?: "character" | "outfit" | "style" } | null>(null);
++  let creativeHandoffSequence = 0;
++  function sendToCreativeTools(
++    image: OutputImage,
++    tool: "reference" | "outpaint" | "pose" | "postprocess",
++    kind?: "character" | "outfit" | "style",
++  ) {
++    if (isVideoImage(image)) return;
++    gallery.closeLightbox();
++    creativeHandoff = { id: ++creativeHandoffSequence, image, tool, kind };
++    currentPage = "generate";
++  }
+   let generationDoneToast = $state<GenerationDoneToast | null>(null);
+ 
+   function openGenerationWorkspace(workspace: "image" | "video") {
+@@ -1339,6 +1351,25 @@
+         action: () => void setGalleryImageAsModelThumb(image, "loras", thumbLora),
+       });
+     }
++    if (!isVideoImage(image)) {
++      const referenceSlots: { kind: "character" | "outfit" | "style"; label: string }[] =
++        generation.modelFamily === "anima"
++          ? [{ kind: "style", label: "畫風" }]
++          : ["qwen_edit", "qwen_edit_plus"].includes(generation.modelFamily)
++            ? [{ kind: "character", label: "角色" }, { kind: "outfit", label: "服裝" }, { kind: "style", label: "畫風" }]
++            : ["sd15", "sdxl", "illustrious", "pony"].includes(generation.modelFamily)
++              ? [{ kind: "character", label: "角色" }, { kind: "style", label: "畫風" }]
++              : [];
++      items.push({ label: "", action: () => {}, separator: true });
++      for (const slot of referenceSlots) {
++        items.push({ label: `Creative Tools｜08 ${slot.label}參考`, action: () => sendToCreativeTools(image, "reference", slot.kind) });
++      }
++      items.push(
++        { label: "Creative Tools｜11 圖片向外延伸", action: () => sendToCreativeTools(image, "outpaint") },
++        { label: "Creative Tools｜22 姿勢控制", action: () => sendToCreativeTools(image, "pose") },
++        { label: "Creative Tools｜31 自動後製", action: () => sendToCreativeTools(image, "postprocess") },
++      );
++    }
+     items.push(
+       { label: "", action: () => {}, separator: true },
+       { label: locale.t("gallery.img2img"), action: () => img2imgImage(image) },
+@@ -4099,7 +4130,7 @@
+     {@render startupBanner(false)}
+     <div class="relative flex-1 overflow-hidden md:min-h-0 {currentPage === 'generate' ? '' : 'md:rounded-xl md:bg-neutral-950'}" inert={startup.locked}>
+     {#if currentPage === "generate"}
+-      <GenerationPage />
++      <GenerationPage {creativeHandoff} />
+     {:else if currentPage === "music"}
+       <MusicPage {userRole} />
+     {:else if currentPage === "model3d" && model3d.enabled}
+@@ -4109,7 +4140,7 @@
+     {:else if currentPage === "comic"}
+       <ComicPage onOpenGenerate={() => (currentPage = "generate")} />
+     {:else if currentPage === "gallery"}
+-      <GalleryPage onSwitchToGenerate={() => (currentPage = "generate")} onMake3D={model3d.enabled ? (image) => { void model3d.useGalleryImage(image); currentPage = "model3d"; } : undefined} />
++      <GalleryPage onSwitchToGenerate={() => (currentPage = "generate")} onOpenContextMenu={openContextMenu} onMake3D={model3d.enabled ? (image) => { void model3d.useGalleryImage(image); currentPage = "model3d"; } : undefined} />
+     {:else if currentPage === "modelhub"}
+       <ModelHubPage />
+     {:else if currentPage === "artists"}
+diff --git a/src/lib/components/gallery/GalleryPage.svelte b/src/lib/components/gallery/GalleryPage.svelte
+index c16ee29..b4d6eca 100644
+--- a/src/lib/components/gallery/GalleryPage.svelte
++++ b/src/lib/components/gallery/GalleryPage.svelte
+@@ -25,11 +25,13 @@
+ 
+   interface Props {
+     onSwitchToGenerate?: () => void;
++    /** Open historical image actions using the app's existing context menu. */
++    onOpenContextMenu?: (event: MouseEvent, image: OutputImage) => void;
+     /** Open the 3D page with this image as the source. */
+     onMake3D?: (image: OutputImage) => void;
+   }
+ 
+-  let { onSwitchToGenerate, onMake3D }: Props = $props();
++  let { onSwitchToGenerate, onOpenContextMenu, onMake3D }: Props = $props();
+ 
+   let newBoardName = $state("");
+   // Detailed view only: its rows vary in height, so it grows as you scroll
+@@ -1256,7 +1258,8 @@
+                 <div></div><div>{locale.t("gallery.col_preview")}</div><div>{locale.t("gallery.col_name")}</div><div>{locale.t("gallery.col_date")}</div><div>{locale.t("gallery.col_size")}</div><div>{locale.t("gallery.col_actions")}</div>
+               </div>
+               {#each group.images as image (image)}
+-                <div class="grid grid-cols-[28px_72px_1fr_150px_120px_420px] gap-2 px-3 py-2 items-center border-b border-neutral-900/80 last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_76px] {selection.has(image) ? 'bg-indigo-500/10' : ''} {cursor === image ? 'outline-2 -outline-offset-2 outline-white' : ''}" data-gallery-cursor={cursor === image ? "" : undefined}>
++                <div class="grid grid-cols-[28px_72px_1fr_150px_120px_420px] gap-2 px-3 py-2 items-center border-b border-neutral-900/80 last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_76px] {selection.has(image) ? 'bg-indigo-500/10' : ''} {cursor === image ? 'outline-2 -outline-offset-2 outline-white' : ''}" data-gallery-cursor={cursor === image ? "" : undefined}
++                  oncontextmenu={(event) => onOpenContextMenu?.(event, image)}> 
+                   {@render selectBox(image, true)}
+                   <button class="w-14 h-14 rounded border border-neutral-800 overflow-hidden" onclick={(e) => onTileClick(e, image)}>
+                     <img use:lazyThumbnail={{ image, size: thumbSize }} alt={image.filename} loading="lazy" decoding="async" class="w-full h-full object-cover {gallery.shouldBlur(image) ? 'blur-md scale-110' : ''}" />
+@@ -1354,7 +1357,9 @@
+                 {:else}
+                   <div class="grid" style="grid-template-columns: repeat({gridColumns}, minmax(0, 1fr)); gap: {GRID_GAP}px; height: {tileHeight}px; margin-bottom: {GRID_GAP}px;">
+                     {#each row.images as image (image)}
+-                    <div role="presentation" ondragstart={(e) => onTileDragStart(e, image)} ondragend={onTileDragEnd} class="group relative h-full rounded-lg overflow-hidden border transition-colors {selection.has(image) ? 'border-indigo-400 ring-2 ring-indigo-500' : 'border-neutral-800 hover:border-indigo-500'} {cursor === image ? 'outline-2 outline-offset-2 outline-white' : ''}">
++                    <div role="presentation" ondragstart={(e) => onTileDragStart(e, image)} ondragend={onTileDragEnd}
++                      oncontextmenu={(event) => onOpenContextMenu?.(event, image)}
++                      class="group relative h-full rounded-lg overflow-hidden border transition-colors {selection.has(image) ? 'border-indigo-400 ring-2 ring-indigo-500' : 'border-neutral-800 hover:border-indigo-500'} {cursor === image ? 'outline-2 outline-offset-2 outline-white' : ''}">
+                       <button
+                         class="w-full h-full"
+                         title={isVideoImage(image) ? locale.t("gallery.play_video") : image.filename}
+diff --git a/src/lib/components/generation/BottomPanel.svelte b/src/lib/components/generation/BottomPanel.svelte
+index a0a5c3c..580d912 100644
+--- a/src/lib/components/generation/BottomPanel.svelte
++++ b/src/lib/components/generation/BottomPanel.svelte
+@@ -26,6 +26,8 @@
+   import FavouritesManager from "../../artist-gallery/components/FavouritesManager.svelte";
+   import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu.svelte";
+   import LoraGallery from "./LoraGallery.svelte";
++  import PromptGeneratorPage from "../../addons/prompt-generator/PromptGeneratorPage.svelte";
++  import LoraInfoPanel from "../../addons/lora-browser/LoraInfoPanel.svelte";
+   import CheckpointGallery from "./CheckpointGallery.svelte";
+   import CompareGrid from "./CompareGrid.svelte";
+   import StyleManager from "./StyleManager.svelte";
+@@ -62,7 +64,7 @@
+ 
+   let { onupscale, oninpaint, onrefine, oncontextmenu, collapsed = false, ontogglecollapse }: Props = $props();
+ 
+-  type TabId = "loras" | "checkpoints" | "images" | "prompts" | "wildcards" | "characters" | "compare" | "artists" | "styles" | "style_creator" | "schedule" | "timeline" | "notes";
++  type TabId = "loras" | "checkpoints" | "images" | "prompts" | "wildcards" | "characters" | "compare" | "artists" | "styles" | "style_creator" | "schedule" | "timeline" | "notes" | "prompt_generator" | "lora_info";
+ 
+   const TAB_KEY = "mooshieui.bottomPanel.activeTab.v1";
+ 
+@@ -77,7 +79,36 @@
+     try { localStorage.setItem(TAB_KEY, activeTab); } catch {}
+   });
+ 
+-  const allTabs: TabId[] = ["loras", "checkpoints", "images", "prompts", "wildcards", "characters", "artists", "styles", "style_creator", "schedule", "compare", "notes"];
++  const allTabs: TabId[] = ["loras", "checkpoints", "images", "prompts", "wildcards", "characters", "artists", "styles", "style_creator", "schedule", "compare", "notes", "prompt_generator", "lora_info"];
++  const TAB_ORDER_KEY = "mooshieui.bottomPanel.tabOrder.v1";
++  const allOrderTabs: TabId[] = [...allTabs, "timeline"];
++
++  function loadTabOrder(): TabId[] {
++    try {
++      const stored = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || "[]");
++      if (Array.isArray(stored)) {
++        const valid = stored.filter((id): id is TabId => typeof id === "string" && allOrderTabs.includes(id as TabId));
++        return [...new Set([...valid, ...allOrderTabs])];
++      }
++    } catch {}
++    return [...allOrderTabs];
++  }
++
++  let tabOrder = $state<TabId[]>(typeof window !== "undefined" ? loadTabOrder() : [...allOrderTabs]);
++  let draggedTab = $state<TabId | null>(null);
++  let tabDropTarget = $state<TabId | null>(null);
++  $effect(() => {
++    try { localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(tabOrder)); } catch {}
++  });
++
++  function reorderBottomTab(target: TabId) {
++    if (!draggedTab || draggedTab === target) return;
++    const next = tabOrder.filter((id) => id !== draggedTab);
++    const index = next.indexOf(target);
++    if (index < 0) return;
++    next.splice(index, 0, draggedTab);
++    tabOrder = next;
++  }
+   // Video mode keeps only the tabs that mean something for H3: session output,
+   // prompt history and notes. LoRAs and checkpoints do not apply to the H3
+   // stack, and artists / artist styles / scheduling / compare are all booru-tag
+@@ -87,8 +118,8 @@
+   // scheduled-batch runner are local-ComfyUI features, so all three tabs are
+   // hidden entirely while a NAI model is selected.
+   const visibleTabs = $derived.by(() => {
+-    if (isVideoMode) return videoTabs;
+-    let tabs = allTabs;
++    if (isVideoMode) return tabOrder.filter((tab) => videoTabs.includes(tab));
++    let tabs = tabOrder.filter((tab) => allTabs.includes(tab));
+     if (!showCheckpointsTab) tabs = tabs.filter((t) => t !== "checkpoints");
+     if (generation.isNovelAi) {
+       tabs = tabs.filter((t) => t !== "loras" && t !== "compare" && t !== "schedule");
+@@ -118,6 +149,8 @@
+     schedule: "bottom_panel.tab.schedule",
+     timeline: "bottom_panel.tab.timeline",
+     notes: "bottom_panel.tab.notes",
++    prompt_generator: "bottom_panel.tab.notes",
++    lora_info: "bottom_panel.tab.notes",
+   };
+ 
+   /** The session-output tab is labelled "Videos" in video mode. */
+@@ -558,12 +591,36 @@
+   <!-- Tab bar (tabs scroll horizontally when many/long; the collapse button stays at the right) -->
+   <div class="flex items-center shrink-0 {collapsed ? '' : 'border-b border-neutral-800'}">
+   <div class="flex flex-1 min-w-0 items-center gap-0.5 px-2 pt-1 pb-0.5 overflow-x-auto overflow-y-hidden">
+-    {#each visibleTabs as tab}
++    {#each visibleTabs as tab (tab)}
+       <button
++        type="button"
++        draggable={!collapsed}
++        title="點擊切換，拖曳可調整分頁順序"
+         onclick={() => { activeTab = tab; if (collapsed) ontogglecollapse?.(); }}
++        ondragstart={(e) => {
++          draggedTab = tab;
++          e.dataTransfer?.setData("text/plain", tab);
++          if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
++        }}
++        ondragover={(e) => {
++          if (!draggedTab) return;
++          e.preventDefault();
++          e.stopPropagation();
++          tabDropTarget = tab;
++          if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
++        }}
++        ondrop={(e) => {
++          if (!draggedTab) return;
++          e.preventDefault();
++          e.stopPropagation();
++          reorderBottomTab(tab);
++          draggedTab = null;
++          tabDropTarget = null;
++        }}
++        ondragend={() => { draggedTab = null; tabDropTarget = null; }}
+         class="shrink-0 whitespace-nowrap px-3 py-1.5 text-[11px] font-medium rounded-t-md transition-colors flex items-center gap-1.5 {activeTab === tab && !collapsed
+           ? 'bg-neutral-800/80 text-neutral-100 border-b-2 border-indigo-500'
+-          : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/40'}"
++          : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/40'} {tabDropTarget === tab && draggedTab && draggedTab !== tab ? 'ring-1 ring-indigo-400' : ''} {draggedTab === tab ? 'opacity-40' : ''}"
+       >
+         {#if tab === "loras"}
+           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+@@ -594,7 +651,7 @@
+         {:else if tab === "notes"}
+           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+         {/if}
+-        {locale.t(tabLabelKey(tab))}
++        {tab === "prompt_generator" ? "Prompt Generator" : tab === "lora_info" ? "LoRA 資訊管理" : locale.t(tabLabelKey(tab))}
+         {#if tab === "loras" && activeLoraCount > 0}
+           <span class="text-[9px] px-1 py-0 rounded-full bg-indigo-600/30 text-indigo-400 tabular-nums">{activeLoraCount}</span>
+         {:else if tab === "images" && sessionImageCount > 0}
+@@ -805,6 +862,10 @@
+       <CharactersPanel />
+     {:else if activeTab === "compare"}
+       <CompareGrid />
++    {:else if activeTab === "prompt_generator"}
++      <PromptGeneratorPage />
++    {:else if activeTab === "lora_info"}
++      <LoraInfoPanel />
+     {:else if activeTab === "notes"}
+       <div class="flex flex-col h-full p-2">
+         <textarea
+diff --git a/src/lib/components/generation/ControlNetSettings.svelte b/src/lib/components/generation/ControlNetSettings.svelte
+index 26ec8b8..4276cba 100644
+--- a/src/lib/components/generation/ControlNetSettings.svelte
++++ b/src/lib/components/generation/ControlNetSettings.svelte
+@@ -47,7 +47,7 @@
+   let imagePreviewUrl = $state<string | null>(null);
+   let controlnetDropZone = $state<HTMLElement | null>(null);
+   let controlnetPasteActive = $state(false);
+-  const ANIMA_PRESET_IDS = ["depth", "anytest_2000", "anytest_1000", "inpainting"];
++  const ANIMA_PRESET_IDS = ["openpose", "depth", "anytest_2000", "anytest_1000", "inpainting"];
+ 
+   $effect(() => {
+     const el = controlnetDropZone;
+diff --git a/src/lib/components/generation/GenerateButton.svelte b/src/lib/components/generation/GenerateButton.svelte
+index 5e4725d..6ac3843 100644
+--- a/src/lib/components/generation/GenerateButton.svelte
++++ b/src/lib/components/generation/GenerateButton.svelte
+@@ -983,6 +983,8 @@
+     </button>
+   {/if}
+ 
++  <QueuePanel />
++
+   {#if compact}
+     {#if progress.isGenerating || repeatRunning}
+       <button
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+index ae7dbfe..fb51397 100644
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+-  import { generation } from "../../stores/generation.svelte.js";
++  import { generation, EDIT_REFERENCE_SLOTS } from "../../stores/generation.svelte.js";
++  import { models } from "../../stores/models.svelte.js";
+   import { compare } from "../../stores/compare.svelte.js";
+   import { locale } from "../../stores/locale.svelte.js";
+   import { scrollCapture } from "../../utils/scrollCapture.js";
+@@ -31,10 +32,18 @@
+   import CanvasEditor from "../canvas/CanvasEditor.svelte";
+   import LayerPanel from "../canvas/layers/LayerPanel.svelte";
+   import { canvas } from "../../stores/canvas.svelte.js";
+-  import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe } from "../../utils/api.js";
+-  import { uploadOutputImageForGenerationInput } from "../../utils/galleryActions.js";
++  import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe, checkNodeAvailable, generateControlnetPreprocessorPreview, getHistory } from "../../utils/api.js";
++  import { checkStyleTransferNodesReady } from "../../utils/styleTransferNodes.js";
++  import { imageUrlToPngBytes, loadOutputImageForGenerationInput, uploadOutputImageForGenerationInput } from "../../utils/galleryActions.js";
++  import { prepareOutpaint, type OutpaintDirection, type OutpaintAmountUnit } from "../../utils/creativeOutpaint.js";
++  import { getPresetModel } from "../../config/controlnet-presets.js";
++  import {
++    planReferenceHandoff, REFERENCE_KINDS, REFERENCE_LABELS,
++    type ReferenceKind, type ReferenceSettings,
++  } from "../../utils/creativeReference.js";
+   import {
+     normalizeGenerationInputBytes,
++    MAX_INPUT_PIXELS_INPAINT,
+     prepareOutputImageForEditMode,
+     type NormalizedInputImage,
+   } from "../../utils/editImagePreparation.js";
+@@ -44,6 +53,8 @@
+   import type { OutputImage, InterrogationResult } from "../../types/index.js";
+   import { onMount, onDestroy, tick, untrack } from "svelte";
+   import BottomPanel from "./BottomPanel.svelte";
++  import CreativeToolsPanel from "./CreativeToolsPanel.svelte";
++  type CreativeTool = "reference" | "outpaint" | "pose" | "postprocess" | "comic";
+   import ContextMenu from "../ui/ContextMenu.svelte";
+   import type { ContextMenuItem } from "../ui/ContextMenu.svelte";
+   import InterrogateModal from "./InterrogateModal.svelte";
+@@ -63,10 +74,437 @@
+ 
+   interface Props {
+     mobileFriendly?: boolean;
++    creativeHandoff?: { id: number; image: OutputImage; tool: CreativeTool; kind?: ReferenceKind } | null;
+   }
+-  let { mobileFriendly = false }: Props = $props();
++  let { mobileFriendly = false, creativeHandoff = null }: Props = $props();
+ 
+   const storageSuffix = mobileFriendly ? ".mobile" : ".desktop";
++  let creativeToolsOpen = $state(false);
++  let creativeTool = $state<CreativeTool>("outpaint");
++  let creativeSource = $state<OutputImage | null>(null);
++  let creativeLocalUrl = $state<string | null>(null);
++  let creativeLocalBytes = $state.raw<number[] | null>(null);
++  let creativeOutpaintBytes = $state.raw<number[] | null>(null);
++  let creativeSourceSize = $state<{ width: number; height: number } | null>(null);
++  let creativeSourceLoading = $state(false);
++  let creativeRequestId = 0;
++  let creativeBusy = $state(false);
++  let creativeError = $state<string | null>(null);
++
++  interface CreativeReferenceEntry {
++    name: string;
++    previewUrl: string;
++    blob: Blob;
++    width: number;
++    height: number;
++  }
++  let creativeReferences = $state<Record<ReferenceKind, CreativeReferenceEntry | null>>({
++    character: null, outfit: null, style: null,
++  });
++  let creativeReferenceUploading = $state<ReferenceKind | null>(null);
++  let creativeReferencePickTarget = $state<ReferenceKind>("character");
++  const creativeReferenceEpoch: Record<ReferenceKind, number> = { character: 0, outfit: 0, style: 0 };
++  let lastCreativeReferencePrompt = "";
++
++  function clearCreativeReference(kind: ReferenceKind) {
++    ++creativeReferenceEpoch[kind];
++    const old = creativeReferences[kind];
++    if (old) URL.revokeObjectURL(old.previewUrl);
++    creativeReferences[kind] = null;
++    if (creativeReferenceUploading === kind) creativeReferenceUploading = null;
++  }
++
++  function copyCreativeReference(from: ReferenceKind, to: ReferenceKind) {
++    const source = creativeReferences[from];
++    if (!source || from === to || creativeBusy || creativeReferenceUploading) return;
++    clearCreativeReference(to);
++    creativeReferences[to] = {
++      ...source, previewUrl: URL.createObjectURL(source.blob),
++    };
++    creativeError = null;
++  }
++
++  async function loadCreativeReference(kind: ReferenceKind, loadBytes: () => Promise<number[]>) {
++    if (creativeBusy || creativeReferenceUploading) return;
++    const epoch = ++creativeReferenceEpoch[kind];
++    creativeReferenceUploading = kind;
++    creativeError = null;
++    let previewUrl: string | null = null;
++    try {
++      const bytes = await loadBytes();
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const normalized = await normalizeGenerationInputBytes(
++        bytes, `creative_reference_${kind}.png`,
++      );
++      previewUrl = normalized.previewUrl;
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const uploaded = await uploadImageBytes(
++        normalized.bytes, `creative_reference_${kind}_${Date.now()}.png`,
++      );
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const old = creativeReferences[kind];
++      if (old) URL.revokeObjectURL(old.previewUrl);
++      creativeReferences[kind] = {
++        name: uploaded.name, blob: normalized.previewBlob,
++        previewUrl: normalized.previewUrl,
++        width: normalized.width, height: normalized.height,
++      };
++      previewUrl = null; // Adopted by creativeReferences.
++    } catch (e) {
++      if (epoch === creativeReferenceEpoch[kind]) {
++        creativeError = e instanceof Error ? e.message : String(e);
++      }
++    } finally {
++      if (previewUrl) URL.revokeObjectURL(previewUrl);
++      if (epoch === creativeReferenceEpoch[kind]) creativeReferenceUploading = null;
++    }
++  }
++
++  function pickCreativeReference(kind: ReferenceKind) {
++    creativeReferencePickTarget = kind;
++    creativeTool = "reference";
++    creativeToolsOpen = true;
++    if (bottomCollapsed) bottomCollapsed = false;
++    gallery.showToast(`請在下方圖庫對圖片按右鍵，選擇送到 08「${REFERENCE_LABELS[kind]}」`, "success");
++  }
++
++  function selectCreativeReference(image: OutputImage, kind: ReferenceKind = creativeReferencePickTarget) {
++    creativeReferencePickTarget = kind;
++    creativeTool = "reference";
++    creativeToolsOpen = true;
++    void loadCreativeReference(kind, async () =>
++      (await loadOutputImageForGenerationInput(image, `creative_reference_${kind}.png`)).bytes,
++    );
++  }
++
++  function creativeReferenceLocal(kind: ReferenceKind, file: File) {
++    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
++      creativeError = "參考圖僅接受 PNG、JPEG 或 WebP";
++      return;
++    }
++    void loadCreativeReference(kind, async () => {
++      // Decode every accepted format to actual PNG bytes before uploading under a .png name.
++      const objectUrl = URL.createObjectURL(file);
++      try {
++        return await imageUrlToPngBytes(objectUrl);
++      } finally {
++        URL.revokeObjectURL(objectUrl);
++      }
++    });
++  }
++
++  async function creativeToReference(settings: ReferenceSettings) {
++    if (creativeBusy || creativeReferenceUploading) return;
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型";
++      return;
++    }
++    const names = {
++      character: creativeReferences.character?.name ?? null,
++      outfit: creativeReferences.outfit?.name ?? null,
++      style: creativeReferences.style?.name ?? null,
++    };
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const plan = planReferenceHandoff(generation.modelFamily, names, settings);
++      const primary = creativeReferences[plan.ordered[0]];
++      if (!primary) throw new Error("參考圖片未載入");
++      if (plan.route === "qwen_edit") {
++        const previousMode = generation.mode;
++        const previousModePrompt = generation.positivePrompt;
++        generation.mode = "image_edit";
++        await tick();
++        const next = Array<string | null>(EDIT_REFERENCE_SLOTS).fill(null);
++        plan.ordered.forEach((kind, index) => {
++          next[index] = creativeReferences[kind]!.name;
++        });
++        generation.editReferenceImages = next;
++        generation.width = Math.max(16, Math.round(primary.width / 16) * 16);
++        generation.height = Math.max(16, Math.round(primary.height / 16) * 16);
++        // Update only a preamble previously applied by this tool, not arbitrary prompt text.
++        const previous = lastCreativeReferencePrompt;
++        const current = generation.positivePrompt || (previousMode !== "image_edit" ? previousModePrompt : "");
++        const userPrompt = previous && current.startsWith(previous + "\n")
++          ? current.slice(previous.length + 1)
++          : current === previous ? "" : current;
++        generation.positivePrompt = [plan.instructions, userPrompt].filter(Boolean).join("\n");
++        lastCreativeReferencePrompt = plan.instructions;
++      } else if (plan.route === "anima_style") {
++        if (!(await checkStyleTransferNodesReady())) {
++          throw new Error("Anima 風格轉換需要 Untwisting RoPE 與 ImageScaleToTotalPixelsX 節點，尚未確認可用");
++        }
++        generation.mode = "txt2img";
++        await tick();
++        generation.styleReferenceImage = primary.name;
++        generation.styleTransferLowScaleEnd = 1 + settings.style.strength / 200;
++        generation.styleTransferEnabled = true;
++        generation.styleRefEnabled = false;
++        generation.controlnetEnabled = false;
++        generation.upscaleEnabled = false;
++        generation.facefixEnabled = false;
++        if (!["euler_ancestral", "euler_a"].includes(generation.samplerName)) {
++          generation.samplerName = "euler_ancestral";
++        }
++      } else {
++        if (plan.route === "anima_character" &&
++          !(await checkNodeAvailable("AnimaRefAdapter"))) {
++          throw new Error("尚未偵測到 AnimaRefAdapter 節點；請先確認原生 Anima 角色參考依賴");
++        }
++        if (plan.route === "anima_character" &&
++          !models.loras.some(name => name.endsWith("anima_ref_adapter_v2_r64.safetensors"))) {
++          throw new Error("尚未找到 Anima Reference Adapter v2 LoRA；請先在原生風格參考區安裝，然後重試");
++        }
++        if (plan.route === "sdxl_adapter" &&
++          !(await checkNodeAvailable("IPAdapterUnifiedLoader"))) {
++          throw new Error("尚未偵測到 IPAdapterUnifiedLoader；請先於原生風格參考區安裝 IP-Adapter Plus");
++        }
++        generation.mode = "txt2img";
++        await tick();
++        generation.styleRefImage = primary.name;
++        generation.styleRefImage2 = null;
++        generation.styleRefEnabled = true;
++        if (plan.route === "anima_character") generation.styleTransferEnabled = false;
++        if (plan.route === "anima_character") {
++          generation.animaRefGuidance = 1 + settings.character.strength * 0.09;
++        } else {
++          generation.styleRefStrength = plan.nativeStrength ?? 0.6;
++          generation.styleRefWeightType = plan.ordered[0] === "style" ? "style transfer" : "linear";
++        }
++      }
++      generation.saveSettings();
++      creativeToolsOpen = false;
++      gallery.showToast("08 參考圖片已帶入原生流程；確認設定後按「生成」。", "success");
++    } catch (e) {
++      creativeError = e instanceof Error ? e.message : String(e);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function readCreativeSourceSize(image: OutputImage | null, localBytes: number[] | null) {
++    const requestId = ++creativeRequestId;
++    creativeSourceSize = null;
++    creativeOutpaintBytes = null;
++    creativeSourceLoading = true;
++    try {
++      const bytes = localBytes ?? (await loadOutputImageForGenerationInput(image!, "creative_outpaint_source.png")).bytes;
++      const normalized = await normalizeGenerationInputBytes(bytes, "creative_outpaint_source.png", MAX_INPUT_PIXELS_INPAINT);
++      // Outpainting and the dimensions preview must use identical normalized pixels.
++      // Large sources are capped by the existing inpaint limit (4MP), not img2img's 1MP.
++      URL.revokeObjectURL(normalized.previewUrl);
++      if (requestId !== creativeRequestId) return;
++      creativeOutpaintBytes = normalized.bytes;
++      creativeSourceSize = { width: normalized.width, height: normalized.height };
++    } catch (error) {
++      if (requestId === creativeRequestId) {
++        creativeError = error instanceof Error ? error.message : String(error);
++      }
++    } finally {
++      if (requestId === creativeRequestId) creativeSourceLoading = false;
++    }
++  }
++
++  function selectCreativeSource(image: OutputImage, tool: CreativeTool) {
++    if (creativeLocalUrl) URL.revokeObjectURL(creativeLocalUrl);
++    creativeLocalUrl = null;
++    creativeLocalBytes = null;
++    creativeSource = image;
++    creativeTool = tool;
++    creativeError = null;
++    creativeToolsOpen = true;
++    void readCreativeSourceSize(image, null);
++  }
++  let lastCreativeHandoffId = 0;
++  $effect(() => {
++    const request = creativeHandoff;
++    if (!request || request.id === lastCreativeHandoffId) return;
++    lastCreativeHandoffId = request.id;
++    if (request.tool === "reference") {
++      selectCreativeReference(request.image, request.kind ?? (generation.modelFamily === "anima" ? "style" : "character"));
++    } else {
++      selectCreativeSource(request.image, request.tool);
++    }
++  });
++  async function creativeSelectLocal(file: File) {
++    if (creativeBusy) return;
++    creativeBusy = true;
++    creativeError = null;
++    const localUrl = URL.createObjectURL(file);
++    try {
++      const bytes = await imageUrlToPngBytes(localUrl);
++      if (creativeLocalUrl) URL.revokeObjectURL(creativeLocalUrl);
++      creativeLocalUrl = localUrl;
++      creativeLocalBytes = bytes;
++      creativeSource = null;
++      void readCreativeSourceSize(null, bytes);
++    } catch (error) {
++      URL.revokeObjectURL(localUrl);
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++  async function creativeToOutpaint(direction: OutpaintDirection, amount: number, unit: OutpaintAmountUnit, denoise: number) {
++    if ((!creativeSource && !creativeLocalBytes) || creativeBusy || creativeSourceLoading) return;
++    if (!creativeOutpaintBytes || !creativeSourceSize) {
++      creativeError = "尚未取得來源圖片尺寸，無法計算延伸範圍";
++      return;
++    }
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型；NovelAI 模式目前不支援此工具。";
++      return;
++    }
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const prepared = await prepareOutpaint(creativeOutpaintBytes, direction, amount, unit);
++      const unique = Date.now();
++      const input = await uploadImageBytes(prepared.imageBytes, `creative_outpaint_${unique}.png`);
++      const mask = await uploadImageBytes(prepared.maskBytes, `creative_outpaint_mask_${unique}.png`);
++      const normalized = await normalizeGenerationInputBytes(prepared.imageBytes, input.name, prepared.imageWidth * prepared.imageHeight);
++      canvas.clearStaging();
++      canvas.clearInpaintSession();
++      // Finish the inpaint-mode transition before installing the prepared mask:
++      // otherwise the canvas initialization can clear generation.maskImage.
++      generation.mode = "inpainting";
++      await tick();
++      canvas.isCanvasMode = false;
++      generation.width = prepared.imageWidth;
++      generation.height = prepared.imageHeight;
++      applyNormalizedImagePreview(normalized);
++      generation.inputImage = input.name;
++      generation.maskImage = mask.name;
++      generation.creativeOutpaintDimensions = { width: prepared.imageWidth, height: prepared.imageHeight };
++      // Apply the strength only while this exact Creative Tools mask is active.
++      generation.creativeOutpaintMask = mask.name;
++      generation.creativeOutpaintDenoise = denoise;
++      if (maskPreviewUrl) URL.revokeObjectURL(maskPreviewUrl);
++      maskPreviewUrl = URL.createObjectURL(new Blob([new Uint8Array(prepared.maskBytes)], { type: "image/png" }));
++      canvas.setPersistedMaskPreview(maskPreviewUrl);
++      creativeToolsOpen = false;
++      gallery.showToast("擴圖畫布與遮罩已載入。確認提示詞後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++  async function creativeDetectPose(): Promise<string> {
++    if ((!creativeSource && !creativeLocalBytes) || creativeSourceLoading || !creativeOutpaintBytes) {
++      throw new Error("請先選擇照片並等待載入完成");
++    }
++    if (creativeBusy) throw new Error("目前有其他 creative-tools 操作正在執行");
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const nodes = await Promise.all([
++        checkNodeAvailable("OpenposePreprocessor", ["image"]),
++        checkNodeAvailable("PreviewAny", ["source"]),
++      ]);
++      if (!nodes.every(Boolean)) {
++        throw new Error("缺少 OpenposePreprocessor 或 PreviewAny 節點，無法取得實際關節座標");
++      }
++      const uploaded = await uploadImageBytes(creativeOutpaintBytes, `creative_pose_photo_${Date.now()}.png`);
++      const { prompt_id } = await generateControlnetPreprocessorPreview(uploaded.name, "OpenposePreprocessor");
++      for (let attempt = 0; attempt < 120; attempt++) {
++        await new Promise<void>(resolve => setTimeout(resolve, 1000));
++        const history = await getHistory(prompt_id);
++        const result = history[prompt_id] as {
++          status?: { status_str?: string };
++          outputs?: Record<string, { text?: unknown }>;
++        } | undefined;
++        if (!result) continue;
++        if (result.status?.status_str === "error") {
++          throw new Error("ComfyUI OpenPose 辨識失敗，請檢查 ComfyUI 錯誤訊息");
++        }
++        for (const output of Object.values(result.outputs ?? {})) {
++          if (!Array.isArray(output?.text)) continue;
++          const text = output.text.find((item): item is string => typeof item === "string");
++          if (text) return text;
++        }
++        throw new Error("OpenPose 工作已完成，但未取得可編輯的關節資料");
++      }
++      throw new Error("等待照片關節辨識逾時，請確認 ComfyUI 執行狀態");
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function creativeToPose(bytes: number[]): Promise<void> {
++    if (creativeBusy) return;
++    creativeError = null;
++    const family = generation.modelFamily;
++    if (generation.isNovelAi || !generation.checkpoint ||
++        !["anima", "illustrious", "sdxl", "pony", "kolors", "sd15"].includes(family)) {
++      creativeError = "目前選擇的模型不支援已確認的原生 OpenPose ControlNet 路徑";
++      return;
++    }
++    const entry = getPresetModel("openpose", family);
++    const installed = family === "anima" ? models.modelPatches : models.controlnetModels;
++    if (!entry || !installed.includes(entry.filename)) {
++      creativeError = `未安裝相容的姿勢控制權重：${entry?.filename ?? "未知"}`;
++      return;
++    }
++    creativeBusy = true;
++    try {
++      const checks = family === "anima"
++        ? [checkNodeAvailable("ModelPatchLoader"), checkNodeAvailable("AnimaLLLiteApply", ["model_patch"])]
++        : [checkNodeAvailable("ControlNetLoader"), checkNodeAvailable("ControlNetApplyAdvanced")];
++      if (!(await Promise.all(checks)).every(Boolean)) {
++        throw new Error("缺少適用於目前模型的姿勢控制節點");
++      }
++      const uploaded = await uploadImageBytes(bytes, `creative_pose_${Date.now()}.png`);
++      generation.mode = "txt2img";
++      await tick();
++      generation.controlnetMode = "custom";
++      generation.controlnetPreset = null;
++      generation.controlnetModel = entry.filename;
++      generation.controlnetPreprocessor = null; // Skeleton pixels are already OpenPose output.
++      generation.controlnetImage = uploaded.name;
++      generation.controlnetEnabled = true;
++      if (family === "anima") generation.controlnetStrength = 1.0;
++      generation.styleTransferEnabled = false;
++      generation.saveSettings();
++      creativeToolsOpen = false;
++      gallery.showToast(family === "anima" ? "22 骨架已交給 Anima LLLite Pose；確認後按生成。" :
++        "22 骨架圖片已交給原生 ControlNet。確認設定後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function creativeToPostprocess(facefix: boolean, upscale: boolean) {
++    if ((!creativeSource && !creativeLocalBytes) || creativeBusy) return;
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型；NovelAI 模式目前不支援此工具。";
++      return;
++    }
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const input = creativeLocalBytes
++        ? (await uploadImageBytes(creativeLocalBytes, `creative_postprocess_${Date.now()}.png`)).name
++        : await uploadOutputImageForGenerationInput(creativeSource!, "creative_postprocess.png");
++      generation.inputImage = input;
++      generation.mode = "img2img";
++      generation.upscaleEnabled = upscale;
++      generation.facefixEnabled = facefix;
++      creativeToolsOpen = false;
++      await revealImageInputSection();
++      gallery.showToast("已載入後製參數，確認模型與設定後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++  function revealCreativeGallery() {
++    if (bottomCollapsed) bottomCollapsed = false;
++    gallery.showToast("在圖庫圖片上按右鍵，選擇送到 creative-tools", "success");
++  }
+   const DIMENSIONS_LAYOUT_KEY = `mooshieui.generation.dimensions.layout.v1${storageSuffix}`;
+   const SECTION_LAYOUT_KEY = `mooshieui.generation.sections.layout.v1${storageSuffix}`;
+ 
+@@ -83,6 +521,7 @@
+     | "novelai"
+     | "naiFaceDetail"
+     | "controlnet"
++    | "creativeTools"
+     | "styleTransfer"
+     | "styleRef"
+     | "facefix"
+@@ -135,6 +574,7 @@
+     novelai: "right",
+     naiFaceDetail: "right",
+     controlnet: "right",
++    creativeTools: "right",
+     styleTransfer: "right",
+     styleRef: "right",
+     facefix: "right",
+@@ -169,6 +609,7 @@
+     "novelai",
+     "naiFaceDetail",
+     "controlnet",
++    "creativeTools",
+     "styleTransfer",
+     "styleRef",
+     "facefix",
+@@ -372,6 +813,7 @@
+     if (section === "novelai") return locale.t('generation.novelai.title');
+     if (section === "naiFaceDetail") return locale.t('generation.nai_face_detail.title');
+     if (section === "controlnet") return locale.t('generation.controlnet.title');
++    if (section === "creativeTools") return "creative-tools";
+     if (section === "facefix") return locale.t('generation.facefix.title');
+     if (section === "styleTransfer") return locale.t('generation.style_transfer.title');
+     if (section === "styleRef") return locale.t('generation.style_ref.title');
+@@ -445,6 +887,7 @@
+   let samplerSectionOpen = $state(savedCollapse.sampler !== false);
+   let novelaiSectionOpen = $state(savedCollapse.novelai !== false);
+   let controlnetSectionOpen = $state(savedCollapse.controlnet !== false);
++  let creativeSectionOpen = $state(savedCollapse.creativeTools !== false);
+   let styleTransferSectionOpen = $state(savedCollapse.styleTransfer !== false);
+   let styleRefSectionOpen = $state(savedCollapse.styleRef !== false);
+   let naiFaceDetailSectionOpen = $state(savedCollapse.naiFaceDetail !== false);
+@@ -464,6 +907,7 @@
+       sampler: samplerSectionOpen,
+       novelai: novelaiSectionOpen,
+       controlnet: controlnetSectionOpen,
++      creativeTools: creativeSectionOpen,
+       styleTransfer: styleTransferSectionOpen,
+       styleRef: styleRefSectionOpen,
+       naiFaceDetail: naiFaceDetailSectionOpen,
+@@ -830,6 +1274,10 @@
+       { label: "", action: () => {}, separator: true },
+       { label: locale.t('generation.ctx.upscale'), action: () => upscaleImage(image) },
+       { label: locale.t('generation.ctx.inpaint'), action: () => inpaintImage(image) },
++      { label: "送到 creative-tools｜08 參考圖", action: () => selectCreativeReference(image) },
++      { label: "送到 creative-tools｜向外延伸", action: () => selectCreativeSource(image, "outpaint") },
++      { label: "送到 creative-tools｜姿勢參考", action: () => selectCreativeSource(image, "pose") },
++      { label: "送到 creative-tools｜後製", action: () => selectCreativeSource(image, "postprocess") },
+       // NovelAI only, and only with a key: the entry is hidden rather than
+       // disabled, because there is nothing the user can do about it from here.
+       ...(directorToolsAvailable()
+@@ -1753,6 +2201,7 @@
+               aria-selected={generation.mode === mode.id}
+               onclick={() => {
+                 generation.mode = mode.id;
++                creativeToolsOpen = false;
+                 if (mode.id !== "inpainting") canvas.isCanvasMode = false;
+               }}
+               class="h-8 px-3.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors {generation.mode === mode.id
+@@ -2310,6 +2759,29 @@
+     </div>
+   {/snippet}
+ 
++  {#snippet creativeToolsSection()}
++    <div bind:this={sectionRefs['creativeTools']} class="relative rounded-xl border border-neutral-800 bg-[color-mix(in_srgb,var(--color-neutral-900)_60%,var(--color-neutral-950))] transition-[height,opacity] duration-150 {draggingSection === 'creativeTools' ? 'h-0 overflow-hidden opacity-0 m-0! p-0! border-0!' : 'opacity-100'}">
++      {@render sectionHeader("creativeTools", creativeSectionOpen, () => (creativeSectionOpen = !creativeSectionOpen))}
++      {#if creativeSectionOpen}
++        <div class="grid gap-1.5 px-3 pb-3 pt-0.5">
++          {#each [
++            { id: "reference", label: "08｜角色／服裝／風格參考" },
++            { id: "outpaint", label: "11｜圖片向外延伸" },
++            { id: "pose", label: "22｜姿勢控制" },
++            { id: "postprocess", label: "31｜自動後製" },
++          ] as tool (tool.id)}
++            <button
++              type="button"
++              class="w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors {creativeToolsOpen && creativeTool === tool.id ? 'border-indigo-400 bg-indigo-600/20 text-indigo-100' : 'border-neutral-700 bg-neutral-800/60 text-neutral-300 hover:border-indigo-500 hover:text-white'}"
++              onclick={() => { creativeTool = tool.id as CreativeTool; creativeToolsOpen = true; }}
++            >{tool.label}</button>
++          {/each}
++          <p class="pt-1 text-[11px] leading-relaxed text-neutral-500">選擇功能後於中央工作區操作；拖曳上方標題可移動此區塊。</p>
++        </div>
++      {/if}
++    </div>
++  {/snippet}
++
+   {#snippet renderSection(section: SectionId)}
+     {#if section === "dimensions"}
+       {@render dimensionsSection()}
+@@ -2335,6 +2807,8 @@
+       {@render naiFaceDetailSection()}
+     {:else if section === "controlnet"}
+       {@render controlnetSection()}
++    {:else if section === "creativeTools"}
++      {@render creativeToolsSection()}
+     {:else if section === "styleTransfer"}
+       {@render styleTransferSection()}
+     {:else if section === "styleRef"}
+@@ -2395,6 +2869,7 @@
+                   aria-selected={generation.mode === mode.id}
+                   onclick={() => {
+                     generation.mode = mode.id;
++                    creativeToolsOpen = false;
+                     if (mode.id !== "inpainting") canvas.isCanvasMode = false;
+                   }}
+                   class="h-9 min-w-0 flex-1 truncate rounded-lg px-1.5 text-xs font-medium transition-colors {generation.mode === mode.id
+@@ -2513,7 +2988,11 @@
+     {#if !mobileFriendly}
+       {@render previewTopBar()}
+     {/if}
+-    {#if canvas.isCanvasMode}
++    {#if creativeToolsOpen && generation.mode !== "video"}
++      <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
++        <CreativeToolsPanel selected={creativeTool} hasImage={creativeSource !== null || creativeLocalBytes !== null} sourceSize={creativeSourceSize} sourceLoading={creativeSourceLoading} modelName={generation.checkpoint || ""} modelFamily={generation.modelFamily} localBackend={!generation.isNovelAi} sourceUrl={creativeLocalUrl || creativeSource?.thumbnailUrl || creativeSource?.url || null} busy={creativeBusy} error={creativeError} referenceImages={creativeReferences} referenceUploading={creativeReferenceUploading} referencePickTarget={creativeReferencePickTarget} onReferencePick={pickCreativeReference} onReferenceLocal={creativeReferenceLocal} onReferenceCopy={copyCreativeReference} onReferenceClear={clearCreativeReference} onReferenceApply={creativeToReference} onSelect={(tool) => { creativeTool = tool; creativeError = null; }} onPickImage={revealCreativeGallery} onLocalImage={creativeSelectLocal} onOutpaint={creativeToOutpaint} onNativeUpscale={creativeToPostprocess} poseWidth={generation.width} poseHeight={generation.height} onPoseApply={creativeToPose} onPoseDetect={creativeDetectPose} onClose={() => creativeToolsOpen = false} />
++      </div>
++    {:else if canvas.isCanvasMode}
+       <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+         <CanvasEditor bind:this={canvasEditorRef} />
+       </div>
+diff --git a/src/lib/components/generation/LoraGallery.svelte b/src/lib/components/generation/LoraGallery.svelte
+index 6eba690..a16aece 100644
+--- a/src/lib/components/generation/LoraGallery.svelte
++++ b/src/lib/components/generation/LoraGallery.svelte
+@@ -1,4 +1,7 @@
+ <script lang="ts">
++  import { onMount } from "svelte";
++  import { portal } from "../../utils/portal.js";
++  import { ipcInvoke } from "../../utils/ipc.js";
+   import { loraKeywords } from "../../stores/loraKeywords.svelte.js";
+   import { civitaiModelPageUrl } from "../../utils/civitaiUrl.js";
+   import { generation } from "../../stores/generation.svelte.js";
+@@ -10,6 +13,8 @@
+   import { locale } from "../../stores/locale.svelte.js";
+   import {
+     civitaiLookupImage,
++    listModelFiles,
++    type ManagedModelFile,
+     fetchCachedImage,
+     getLoraCivitaiInfo,
+     saveModelSidecarThumbnail,
+@@ -27,6 +32,9 @@
+     type ModelGallerySort,
+   } from "../../utils/modelGallerySort.js";
+   import ModelPreviewActions from "./ModelPreviewActions.svelte";
++  import LoraFilterBar from "../../addons/lora-browser/LoraFilterBar.svelte";
++  import LoraExternalSearch from "../../addons/lora-browser/LoraExternalSearch.svelte";
++  import { availableLoraGames, classifyLora, matchesLora, type LoraFilter, type LoraGame, type LoraType } from "../../addons/lora-browser/loraCategories.js";
+ 
+   interface Props {
+     cardSize?: number;
+@@ -76,12 +84,31 @@
+     return {};
+   }
+ 
+-  let cache = $state<Record<string, CacheEntry>>(loadCache());
++  let cache = $state<Record<string, CacheEntry>>({});
++  let cacheLoaded = false;
+   let loading = $state<Record<string, boolean>>({});
+   let errors = $state<Record<string, string>>({});
+   let selectedLora = $state<string | null>(null);
+   let imageIndex = $state<Record<string, number>>({});
+   let searchQuery = $state("");
++  const PANEL_KEY = "mooshieui.plus.loraPanel.v5";
++  const storedPanel = (() => { try { return JSON.parse(localStorage.getItem(PANEL_KEY) ?? "{}"); } catch { return {}; } })();
++  let managerExpanded = $state(storedPanel.manager ?? false);
++  let localExpanded = $state(storedPanel.local ?? true);
++  let viewMode = $state<"grid" | "list">(storedPanel.view === "list" ? "list" : "grid");
++  let refreshMenuOpen = $state(false);
++  let showScanPanel = $state(false);
++  let detailLora = $state<string | null>(null);
++  let localFiles = $state<ManagedModelFile[]>([]);
++  let refreshError = $state("");
++  // A type and a folder must both be chosen before cards can be created.
++  let plusActiveTab = $state<LoraFilter | "">("");
++  let plusGameFilter = $state<LoraGame | "">("");
++  let categoryOverrides = $state<Record<string, LoraType[]>>({});
++  let visibleCount = $state(30);
++  let visibleLoraNames = $state<Set<string>>(new Set());
++  let localFilesRequested = false;
++  const loadReady = $derived(plusActiveTab !== "" && plusGameFilter !== "");
+   let civitaiImageRef = $state("");
+   let civitaiImportBusy = $state(false);
+   let sortMode = $state<ModelGallerySort>(
+@@ -108,6 +135,78 @@
+     );
+   }
+ 
++  $effect(() => {
++    try { localStorage.setItem(PANEL_KEY, JSON.stringify({ manager: managerExpanded, local: localExpanded, view: viewMode })); } catch {}
++  });
++
++  onMount(() => { void loadCategoryTypes(); });
++
++  async function loadCategoryTypes() {
++    try {
++      const catalog = await ipcInvoke<{ types?: Record<string, LoraType[]> }>("lora_info_action", { action: "list", filename: "" });
++      categoryOverrides = catalog.types ?? {};
++    } catch (error) {
++      // Browser remains usable when the separate LoRA Info module is absent.
++      console.warn("LoRA classification overrides unavailable; using bundled records", error);
++    }
++  }
++
++  $effect(() => {
++    void plusActiveTab;
++    void plusGameFilter;
++    void searchQuery;
++    void sortMode;
++    visibleCount = 30;
++    visibleLoraNames = new Set();
++    fetchQueue = [];
++  });
++
++  $effect(() => {
++    if (loadReady && !cacheLoaded) {
++      cacheLoaded = true;
++      cache = loadCache();
++    }
++  });
++
++  // File size/details are only needed in list mode or the detail drawer.
++  $effect(() => {
++    if (loadReady && (viewMode === "list" || detailLora) && !localFilesRequested) {
++      localFilesRequested = true;
++      void updateLocalFiles();
++    }
++  });
++
++  async function updateLocalFiles() {
++    refreshError = "";
++    try { localFiles = await listModelFiles("loras"); }
++    catch (e) { refreshError = e instanceof Error ? e.message : String(e); }
++  }
++
++  async function refreshLocalLoras() {
++    refreshMenuOpen = false;
++    const ok = await models.refresh();
++    if (!ok) refreshError = "更新本地 LoRA 清單失敗";
++    await updateLocalFiles();
++  }
++
++  function getLocalFile(name: string): ManagedModelFile | undefined {
++    return localFiles.find((f) => f.filename.replaceAll("\\", "/") === name.replaceAll("\\", "/"));
++  }
++  function formattedFileSize(name: string): string {
++    const size = getLocalFile(name)?.size_bytes;
++    return size == null ? "—" : size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(2)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
++  }
++  function localTypes(name: string): string {
++    const labels = { style: "風格", character: "角色", effect: "效果", other: "其他" };
++    const result = classifyLora(name, categoryOverrides, cache[name]?.data);
++    const names = result.types.map((t) => labels[t]).join(" / ");
++    return result.inferred ? `${names}（推測）` : names;
++  }
++  function localBase(name: string): string {
++    const info = getInfo(name);
++    return info?.civitai_base_model || info?.modelspec_architecture || info?.family || "—";
++  }
++
+   function saveCache() {
+     try {
+       localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+@@ -122,8 +221,11 @@
+ 
+   // All available LoRAs, filtered by search
+   const filteredLoras = $derived(() => {
++    if (!loadReady) return [];
+     const q = searchQuery.toLowerCase().trim();
+-    let list = models.loras;
++    let list = models.loras.filter((name) =>
++      matchesLora(name, plusActiveTab, plusGameFilter, categoryOverrides, cache[name]?.data)
++    );
+     if (q) {
+       list = list.filter((name) => {
+         const display = displayName(name).toLowerCase();
+@@ -146,10 +248,22 @@
+ 
+   // Folder tree for the "tree" sort mode, built from the already-filtered and
+   // enabled-first list so grouping and ordering stay consistent with the grid.
++  const pagedLoras = $derived(filteredLoras().slice(0, visibleCount));
++  const hasMore = $derived(visibleCount < filteredLoras().length);
++
+   const loraTree = $derived(
+-    sortMode === "tree" ? buildFilenameTree(filteredLoras()) : null,
++    sortMode === "tree" ? buildFilenameTree(pagedLoras) : null,
+   );
+ 
++  function loadMore() {
++    if (hasMore) visibleCount += 30;
++  }
++
++  function loadMoreOnScroll(event: Event) {
++    const node = event.currentTarget as HTMLElement;
++    if (node.scrollHeight - node.scrollTop - node.clientHeight < 220) loadMore();
++  }
++
+   function toggleFolder(path: string) {
+     const next = new Set(collapsedFolders);
+     if (next.has(path)) next.delete(path);
+@@ -311,11 +425,12 @@
+     enqueueFetch(filename);
+   }
+ 
+-  // IntersectionObserver action to trigger lazy loading
++  // Only cards intersecting the viewport may fetch model metadata and thumbnails.
+   function lazyFetch(node: HTMLElement, filename: string) {
+     const observer = new IntersectionObserver(
+       (entries) => {
+         if (entries[0]?.isIntersecting) {
++          visibleLoraNames = new Set([...visibleLoraNames, filename]);
+           enqueueFetch(filename);
+           observer.disconnect();
+         }
+@@ -324,7 +439,14 @@
+     );
+     observer.observe(node);
+     return {
+-      destroy() { observer.disconnect(); }
++      destroy() {
++        observer.disconnect();
++        if (visibleLoraNames.has(filename)) {
++          const next = new Set(visibleLoraNames);
++          next.delete(filename);
++          visibleLoraNames = next;
++        }
++      }
+     };
+   }
+ 
+@@ -507,19 +629,24 @@
+     }
+   }
+ 
+-  // Resolve the currently-visible image for a LoRA whenever it changes.
++  // Keep cached previews lazy too: do not fetch every image in localStorage on startup.
+   $effect(() => {
+-    for (const loraName of Object.keys(cache)) {
++    if (!loadReady) return;
++    for (const loraName of visibleLoraNames) {
+       const url = currentImageUrl(loraName);
+-      if (url && !resolvedImages[url]) {
+-        resolveImage(url);
++      if (url && !url.startsWith("data:") && !resolvedImages[url]) {
++        void resolveImage(url);
+       }
+     }
+   });
+ </script>
+ 
+-<!-- Search + LoRA grid -->
+-<div class="flex flex-col h-full">
++<!-- LoRA Browser V5: independent external management and local catalog -->
++<div class="flex flex-col h-full overflow-y-auto">
++  <button type="button" class="mx-2 mt-1.5 flex shrink-0 items-center justify-between rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs font-medium text-neutral-200" aria-expanded={managerExpanded} onclick={() => managerExpanded = !managerExpanded}>
++    <span>LoRA 管理 · 外部搜尋</span><span>{managerExpanded ? "▲" : "▼"}</span>
++  </button>
++  {#if managerExpanded}
+   <div class="mx-2 mt-1.5 rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[11px] space-y-2">
+     <p class="text-neutral-400">{locale.t("lora_presets.title")}</p>
+     <div class="flex items-center gap-2">
+@@ -584,7 +711,23 @@
+     {/if}
+   </div>
+ 
+-  <!-- CivitAI bulk scan controls -->
++  <div class="mx-2 mt-1.5 space-y-2 rounded border border-neutral-800 bg-neutral-900/60 p-2">
++    <LoraExternalSearch />
++    <div class="flex items-center gap-1">
++      <input type="text" bind:value={civitaiImageRef} placeholder="CivitAI Image URL 或 ID（匯入圖片提示詞）"
++        class="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-100" />
++      <button type="button" disabled={civitaiImportBusy || !civitaiImageRef.trim()}
++        onclick={() => void importCivitaiImageMeta()} class="rounded border border-neutral-700 px-2 py-1 text-[11px] disabled:opacity-40">匯入提示詞</button>
++    </div>
++  </div>
++  {/if}
++
++  <button type="button" class="mx-2 mt-1.5 flex shrink-0 items-center justify-between rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs font-medium text-neutral-200" aria-expanded={localExpanded} onclick={() => localExpanded = !localExpanded}>
++    <span>本地LORA</span><span>{localExpanded ? "▲" : "▼"}</span>
++  </button>
++  {#if localExpanded}
++  <!-- CivitAI scan for local models only -->
++  {#if showScanPanel}
+   <div class="px-2 pt-1 pb-0.5 shrink-0">
+     {#if !civitaiScan.running && !civitaiScan.summary && !civitaiScan.progress}
+       <button
+@@ -663,54 +806,49 @@
+     {/if}
+   </div>
+ 
+-  <!-- Search bar + size slider -->
+-  <div class="px-2 pt-1.5 pb-1 shrink-0 space-y-1">
+-    <div class="flex gap-1 items-center">
+-      <select
+-        bind:value={sortMode}
+-        class="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-[10px] text-neutral-200 focus:outline-none focus:border-indigo-500"
+-        title={locale.t('model_gallery.sort_tip')}
+-      >
++  {/if}
++  <LoraFilterBar bind:activeTab={plusActiveTab} bind:gameFilter={plusGameFilter} games={availableLoraGames(models.loras)} />
++
++  <!-- Second toolbar: sort, refresh, local search, then display controls on the right. -->
++  <div class="shrink-0 px-2 pt-1.5 pb-1 space-y-1">
++    <div class="flex flex-wrap items-center gap-1.5">
++      <label for="plus-lora-sort" class="shrink-0 text-[11px] text-neutral-500">排序</label>
++      <select id="plus-lora-sort" bind:value={sortMode}
++        class="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-[11px] text-neutral-200">
+         <option value="name">{locale.t('model_gallery.sort_name')}</option>
+         <option value="folder">{locale.t('model_gallery.sort_folder')}</option>
+         <option value="tree">{locale.t('model_gallery.sort_tree')}</option>
+         <option value="family">{locale.t('model_gallery.sort_family')}</option>
+       </select>
+-      <input
+-        type="text"
+-        bind:value={civitaiImageRef}
+-        placeholder={locale.t('checkpoint.civitai_image_ref_placeholder')}
+-        class="min-w-0 flex-1 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+-      />
+-      <button
+-        type="button"
+-        disabled={civitaiImportBusy || !civitaiImageRef.trim()}
+-        onclick={() => void importCivitaiImageMeta()}
+-        class="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-[10px] text-neutral-200 hover:border-indigo-500 disabled:opacity-40"
+-        title={locale.t('checkpoint.civitai_image_ref_tip')}
+-      >
+-        {civitaiImportBusy ? "…" : locale.t('checkpoint.civitai_import_prompt')}
+-      </button>
+-    </div>
+-    <div class="flex items-center gap-2">
+-    <input
+-      type="text"
+-      bind:value={searchQuery}
+-      placeholder={locale.t('lora.search_placeholder')}
+-      class="flex-1 bg-neutral-800 border border-neutral-700 rounded px-2.5 py-1 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
+-    />
+-    <div use:scrollCapture>
+-      <input
+-        type="range"
+-        min="60"
+-        max="200"
+-        value={cardSize}
+-        oninput={(e) => onCardSizeChange?.(Number(e.currentTarget.value))}
+-        class="w-16 h-4 accent-indigo-500 cursor-pointer"
+-        title={locale.t('bottom_panel.card_size')}
+-      />
+-    </div>
++      <div class="relative flex shrink-0 items-center">
++        <button type="button" class="rounded-l border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] hover:border-indigo-500"
++          onclick={() => void refreshLocalLoras()}>重新整理</button>
++        <button type="button" class="rounded-r border border-l-0 border-neutral-700 bg-neutral-800 px-1 py-1 text-[11px]" aria-label="重新整理選單"
++          aria-expanded={refreshMenuOpen} onclick={() => refreshMenuOpen = !refreshMenuOpen}>▼</button>
++        {#if refreshMenuOpen}
++          <div class="absolute left-0 top-full z-30 mt-1 min-w-44 rounded border border-neutral-600 bg-neutral-900 p-1 shadow-lg">
++            <button type="button" class="block w-full rounded px-2 py-1 text-left text-[11px] hover:bg-neutral-800"
++              onclick={() => void refreshLocalLoras()}>重新整理本地 LoRA</button>
++            <button type="button" class="block w-full rounded px-2 py-1 text-left text-[11px] hover:bg-neutral-800"
++              onclick={() => { refreshMenuOpen = false; showScanPanel = true; void civitaiScan.scan(false); }}>更新 CivitAI 資訊</button>
++          </div>
++        {/if}
++      </div>
++      <input type="search" bind:value={searchQuery} placeholder="搜尋本地 LoRA" aria-label="搜尋本地 LoRA"
++        class="min-w-[120px] flex-[1_1_180px] rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-100" />
++      <div class="ml-auto flex shrink-0 items-center gap-1.5" role="group" aria-label="LoRA 顯示方式">
++        <button type="button" class="rounded border px-1.5 py-1 text-xs {viewMode === 'grid' ? 'border-indigo-500 text-indigo-300' : 'border-neutral-700 text-neutral-400'}"
++          title="圖式" aria-label="圖式" aria-pressed={viewMode === "grid"} onclick={() => viewMode = "grid"}>▦</button>
++        <button type="button" class="rounded border px-1.5 py-1 text-xs {viewMode === 'list' ? 'border-indigo-500 text-indigo-300' : 'border-neutral-700 text-neutral-400'}"
++          title="清單" aria-label="清單" aria-pressed={viewMode === "list"} onclick={() => viewMode = "list"}>☰</button>
++        <div use:scrollCapture class={viewMode === "grid" ? "" : "hidden"}>
++          <input type="range" min="60" max="200" value={cardSize}
++            oninput={(e) => onCardSizeChange?.(Number(e.currentTarget.value))}
++            class="w-16 h-4 cursor-pointer accent-indigo-500" title="縮圖大小" />
++        </div>
++      </div>
+     </div>
++    {#if refreshError}<p class="text-amber-300 text-[10px]" role="alert">{refreshError}</p>{/if}
+   </div>
+ 
+   {#if loraInfoAccessBlocked}
+@@ -734,6 +872,10 @@
+     <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs">
+       <p>{locale.t('lora.no_loras')}</p>
+     </div>
++  {:else if !loadReady}
++    <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs px-3 py-6">
++      <p>請先選擇 LoRA 類型，再選擇資料夾或按「全選資料夾」。</p>
++    </div>
+   {:else if filteredLoras().length === 0}
+     <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs">
+       <p>{locale.t('lora.no_results', { query: searchQuery })}</p>
+@@ -870,6 +1012,8 @@
+                   {displayName(loraName)}
+                 </h4>
+               </button>
++              <button type="button" class="shrink-0 rounded border border-neutral-700 px-1.5 text-neutral-300 hover:border-indigo-500" title="詳細資訊" aria-label="查看詳細資訊"
++                onclick={(e) => { e.stopPropagation(); detailLora = loraName; }}>ⓘ</button>
+               {#if info?.civitai_model_id}
+                 <a
+                   href={civitaiModelPageUrl(info.civitai_model_id, info.civitai_nsfw)}
+@@ -966,8 +1110,31 @@
+       </div>
+     {/snippet}
+ 
+-    <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
+-      {#if sortMode === "tree" && loraTree}
++    <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5" onscroll={loadMoreOnScroll}>
++      {#if viewMode === "list"}
++        <div class="min-w-[480px] space-y-0.5 text-[11px]">
++          <div class="grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px_36px] items-center gap-2 border-b border-neutral-700 px-1 py-1 text-neutral-400">
++            <span>縮圖</span><span>名稱</span><span>分類</span><span>底模</span><span>大小</span><span>詳細</span>
++          </div>
++          {#each pagedLoras as loraName (loraName)}
++            {@const imgUrl = currentImageUrl(loraName)}
++            {@const thumbUrl = imgUrl ? (imgUrl.startsWith("data:") ? imgUrl : resolvedImages[imgUrl]) : null}
++            {@const active = isLoraEnabled(loraName)}
++            <div use:lazyFetch={loraName} class="grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px_36px] items-center gap-2 rounded border px-1 py-1 transition-colors {active ? 'border-indigo-500/60 bg-indigo-500/15' : 'border-neutral-800 hover:bg-neutral-800/60'}">
++              <button type="button" class="col-span-5 grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px] items-center gap-2 text-left" aria-pressed={active}
++                onclick={() => { selectedLora = loraName; toggleLoraByName(loraName); }}>
++                {#if thumbUrl}<img src={thumbUrl} alt="" class="h-10 w-10 rounded object-cover" />{:else}<span class="flex h-10 w-10 items-center justify-center rounded bg-neutral-800 text-neutral-600">▧</span>{/if}
++                <span class="truncate font-medium text-neutral-200" title={loraName}>{displayName(loraName)}{active ? " ✓" : ""}</span>
++                <span class="truncate text-neutral-400" title={localTypes(loraName)}>{localTypes(loraName)}</span>
++                <span class="truncate text-neutral-400" title={localBase(loraName)}>{localBase(loraName)}</span>
++                <span class="text-neutral-400">{formattedFileSize(loraName)}</span>
++              </button>
++              <button type="button" class="rounded border border-neutral-700 px-1 py-1 text-neutral-300 hover:border-indigo-500"
++                aria-label="查看詳細資訊" title="詳細資訊" onclick={() => detailLora = loraName}>ⓘ</button>
++            </div>
++          {/each}
++        </div>
++      {:else if sortMode === "tree" && loraTree}
+         <div class="space-y-0.5">
+           {#each loraTree.folders as folder (folder.path)}
+             {@render folderGroup(folder, 0)}
+@@ -982,11 +1149,58 @@
+         </div>
+       {:else}
+         <div class="grid gap-2.5" style="grid-template-columns: repeat(auto-fill, minmax({cardSize}px, 1fr));">
+-          {#each filteredLoras() as loraName (loraName)}
++          {#each pagedLoras as loraName (loraName)}
+             {@render loraCard(loraName)}
+           {/each}
+         </div>
+       {/if}
++      {#if hasMore}
++        <button type="button" class="mt-3 w-full rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs text-neutral-200 hover:border-indigo-500"
++          onclick={loadMore}>載入更多（已顯示 {pagedLoras.length} / {filteredLoras().length}）</button>
++      {/if}
+     </div>
+   {/if}
++  {#if detailLora}
++    {@const info = getInfo(detailLora)}
++    {@const file = getLocalFile(detailLora)}
++    {@const imgUrl = currentImageUrl(detailLora)}
++    {@const resolved = imgUrl ? (imgUrl.startsWith("data:") ? imgUrl : resolvedImages[imgUrl]) : null}
++    <div use:portal class="fixed inset-0 z-[210] flex justify-end bg-black/60" role="presentation" onclick={() => detailLora = null} onkeydown={(e) => { if (e.key === "Escape") detailLora = null; }}>
++      <section role="dialog" aria-modal="true" aria-label="LoRA 詳細資訊"
++        class="h-full w-full max-w-md overflow-y-auto border-l border-neutral-700 bg-neutral-900 p-4 text-xs shadow-xl"
++        onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
++        <div class="mb-3 flex items-center justify-between">
++          <h3 class="text-sm font-semibold text-neutral-100">LoRA 詳細資訊</h3>
++          <button type="button" onclick={() => detailLora = null} class="rounded border border-neutral-700 px-2 py-1">關閉 ×</button>
++        </div>
++        {#if resolved}<img src={resolved} alt="" class="mb-3 max-h-56 w-full rounded object-contain" />{/if}
++        <dl class="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2 gap-y-2 break-all text-neutral-300">
++          <dt class="text-neutral-500">名稱</dt><dd>{displayName(detailLora)}</dd>
++          <dt class="text-neutral-500">分類</dt><dd>{localTypes(detailLora)}</dd>
++          <dt class="text-neutral-500">底模</dt><dd>{localBase(detailLora)}</dd>
++          <dt class="text-neutral-500">作者</dt><dd>{info?.civitai_creator ?? info?.modelspec_author ?? "—"}</dd>
++          <dt class="text-neutral-500">大小</dt><dd>{formattedFileSize(detailLora)}</dd>
++          <dt class="text-neutral-500">修改日期</dt><dd>{file ? new Date(file.modified_ms).toLocaleString() : "—"}</dd>
++          <dt class="text-neutral-500">檔案位置</dt><dd class="break-all">{file?.path ?? "—"}</dd>
++          <dt class="text-neutral-500">Hash</dt><dd>{info?.hash ?? "—"}</dd>
++          <dt class="text-neutral-500">下載量</dt><dd>{info?.civitai_download_count?.toLocaleString() ?? "—"}</dd>
++        </dl>
++        <div class="mt-4 space-y-2">
++          <h4 class="font-medium text-neutral-200">Trigger Words</h4>
++          <div class="flex flex-wrap gap-1">
++            {#each (info?.civitai_trigger_words?.length ? info.civitai_trigger_words : (info?.modelspec_trigger_phrase ?? "").split(",").map((s) => s.trim()).filter(Boolean)) as word}
++              <button type="button" class="rounded border border-indigo-600/40 px-2 py-1 text-indigo-300" onclick={() => addTriggerWord(detailLora!, word)}>{word}</button>
++            {/each}
++          </div>
++          {#if info?.civitai_description || info?.modelspec_description}
++            <p class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-neutral-400">{info.civitai_description ?? info.modelspec_description}</p>
++          {/if}
++          {#if info?.civitai_model_id}
++            <a href={civitaiModelPageUrl(info.civitai_model_id, info.civitai_nsfw)} target="_blank" rel="noopener noreferrer" class="text-indigo-300 underline">開啟 CivitAI</a>
++          {/if}
++        </div>
++      </section>
++    </div>
++  {/if}
++  {/if}
+ </div>
+diff --git a/src/lib/components/generation/PromptTextarea.svelte b/src/lib/components/generation/PromptTextarea.svelte
+index 79b4268..0f9537c 100644
+--- a/src/lib/components/generation/PromptTextarea.svelte
++++ b/src/lib/components/generation/PromptTextarea.svelte
+@@ -2,6 +2,7 @@
+   import { onDestroy, tick, untrack } from "svelte";
+   import { on } from "svelte/events";
+   import { autocomplete, type TagEntry } from "../../stores/autocomplete.svelte.js";
++  import { chineseLabelsForTag } from "../../addons/tag-zh-tw/tagTranslations.js";
+   import { locale } from "../../stores/locale.svelte.js";
+   import { generation } from "../../stores/generation.svelte.js";
+   import { promptPresets } from "../../stores/promptPresets.svelte.js";
+@@ -154,7 +155,7 @@
+   let dropdownLeft = $state(0);
+   let suggestionTimer: ReturnType<typeof setTimeout> | null = null;
+ 
+-  const DROPDOWN_WIDTH = 320; // w-80
++  const DROPDOWN_WIDTH = 380; // bilingual rows
+   const DROPDOWN_MAX_HEIGHT = 240; // max-h-60
+   const VIEWPORT_MARGIN = 8;
+   const PANEL_GAP = 8;
+@@ -466,7 +467,7 @@
+       suggestions = tagResults;
+     }
+     selectedIndex = 0;
+-    showSuggestions = suggestions.length > 0;
++    showSuggestions = suggestions.length > 0 || categoryFilter !== null;
+ 
+     if (showSuggestions) {
+       positionDropdown();
+@@ -699,7 +700,12 @@
+     }
+ 
+     // Autocomplete navigation
+-    if (showSuggestions) {
++    if (showSuggestions && e.key === "Escape") {
++      e.preventDefault();
++      showSuggestions = false;
++      return;
++    }
++    if (showSuggestions && suggestions.length > 0) {
+       if (e.key === "ArrowDown") {
+         e.preventDefault();
+         selectedIndex = (selectedIndex + 1) % suggestions.length;
+@@ -1528,7 +1534,7 @@
+   {#if showSuggestions}
+     <div
+       use:portal
+-      class="fixed z-[200] w-80 max-h-60 overflow-y-auto bg-neutral-800 border border-neutral-600 rounded-lg shadow-xl"
++      class="fixed z-[200] w-[380px] max-h-60 overflow-y-auto bg-neutral-800 border border-neutral-600 rounded-lg shadow-xl"
+       style="top: {dropdownTop}px; left: {dropdownLeft}px;"
+     >
+       <div class="sticky top-0 z-10 border-b border-neutral-700 bg-neutral-800/95 p-2 backdrop-blur-sm">
+@@ -1536,7 +1542,7 @@
+           {#each categoryOptions as option (option.value ?? "all")}
+             <button
+               type="button"
+-              class="rounded-full border px-2 py-0.5 text-[10px] transition-colors cursor-pointer {categoryFilter === option.value
++              class="rounded-full border px-2 py-0.5 text-xs transition-colors cursor-pointer {categoryFilter === option.value
+                 ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-200'
+                 : 'border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200'}"
+               use:bindCategoryButton={option.value}
+@@ -1546,6 +1552,9 @@
+           {/each}
+         </div>
+       </div>
++      {#if suggestions.length === 0}
++        <div class="px-3 py-3 text-sm text-neutral-400">此分類無符合結果</div>
++      {/if}
+       {#each suggestions as tag, i (tag.n)}
+         <button
+           type="button"
+@@ -1561,8 +1570,11 @@
+               {locale.t("generation.prompt.lora_keyword_badge")}
+             </span>
+           {:else}
+-            <span class={CATEGORY_COLORS[tag.c] ?? "text-neutral-300"}>
+-              {formatTagForDisplay(tag.n)}
++            <span class="min-w-0 flex-1 flex flex-col">
++              <span class={CATEGORY_COLORS[tag.c] ?? "text-neutral-300"}>{formatTagForDisplay(tag.n)}</span>
++              {#if chineseLabelsForTag(tag).length > 0}
++                <span class="text-sm text-neutral-300/85 truncate" title={chineseLabelsForTag(tag).join(" / ")}>{chineseLabelsForTag(tag).join(" · ")}</span>
++              {/if}
+             </span>
+             <span class="text-xs text-neutral-500 shrink-0">{formatTagCount(tag)}</span>
+           {/if}
+diff --git a/src/lib/components/ui/QueuePanel.svelte b/src/lib/components/ui/QueuePanel.svelte
+index a9979c9..f13ed9b 100644
+--- a/src/lib/components/ui/QueuePanel.svelte
++++ b/src/lib/components/ui/QueuePanel.svelte
+@@ -39,7 +39,7 @@
+ 
+   <!-- Panel -->
+   <div
+-    class="absolute bottom-full right-0 mb-2 w-96 max-w-[calc(100vw-1.5rem)] max-h-[min(28rem,70dvh)] flex flex-col rounded-xl border border-neutral-700 bg-neutral-900 shadow-2xl z-50"
++    class="absolute bottom-full right-0 mb-2 w-full max-w-96 max-h-[min(28rem,70dvh)] flex flex-col rounded-xl border border-neutral-700 bg-neutral-900 shadow-2xl z-50"
+     role="dialog"
+     aria-label={locale.t("queue.panel.title")}
+   >
+diff --git a/src/lib/config/controlnet-presets.ts b/src/lib/config/controlnet-presets.ts
+index fe382d5..1974355 100644
+--- a/src/lib/config/controlnet-presets.ts
++++ b/src/lib/config/controlnet-presets.ts
+@@ -129,6 +129,13 @@ export const CONTROLNET_PRESETS: ControlNetPreset[] = [
+         filename: "control_v11p_sd15_openpose_fp16.safetensors",
+         url: "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11p_sd15_openpose_fp16.safetensors",
+       },
++      anima: {
++        filename: "anima-lllite-pose-1.safetensors",
++        url: "https://huggingface.co/kohya-ss/Anima-LLLite/resolve/main/anima-lllite-pose-1.safetensors",
++        category: "model_patches",
++        preprocessor: "DWPreprocessor",
++        defaults: { strength: 1.0, startPercent: 0, endPercent: 1 },
++      },
+     },
+   },
+   {
+diff --git a/src/lib/stores/autocomplete.svelte.ts b/src/lib/stores/autocomplete.svelte.ts
+index a945c96..e03c6b9 100644
+--- a/src/lib/stores/autocomplete.svelte.ts
++++ b/src/lib/stores/autocomplete.svelte.ts
+@@ -2,6 +2,7 @@ import { ipcStore } from "../utils/ipc.js";
+ import { triggerSync } from "../utils/syncTrigger.js";
+ import { locale } from "./locale.svelte.js";
+ import builtinTags from "../assets/danbooru-tags.json";
++import { withChineseTagAliases } from "../addons/tag-zh-tw/tagTranslations.js";
+ import { damerauLevenshtein } from "../utils/promptSpellcheck.js";
+ 
+ export interface TagEntry {
+@@ -166,8 +167,8 @@ class AutocompleteStore {
+   }
+ 
+   private setTags(tags: TagEntry[]) {
+-    this.tags = tags;
+-    this.rebuildSearchIndex(tags);
++    this.tags = withChineseTagAliases(tags);
++    this.rebuildSearchIndex(this.tags);
+   }
+ 
+   private cancelBuiltinSwap() {
+diff --git a/src/lib/stores/generation.svelte.ts b/src/lib/stores/generation.svelte.ts
+index 5fdd5ec..6b126db 100644
+--- a/src/lib/stores/generation.svelte.ts
++++ b/src/lib/stores/generation.svelte.ts
+@@ -734,6 +734,10 @@ class GenerationStore {
+   denoise = $state(0.7);
+   inputImage = $state<string | null>(null);
+   maskImage = $state<string | null>(null);
++  /** In-memory, mask-specific outpaint override; regular inpainting keeps its own denoise. */
++  creativeOutpaintMask = $state<string | null>(null);
++  creativeOutpaintDimensions = $state<{ width: number; height: number } | null>(null);
++  creativeOutpaintDenoise = $state(1);
+   growMaskBy = $state(6);
+   differentialDiffusion = $state(false);
+   upscaleEnabled = $state(false);
+@@ -4304,6 +4308,8 @@ class GenerationStore {
+     // (see `utils/timelineProvider.ts`).
+     const timeline = isVideo ? compileTimeline(translatedPositiveBase) : null;
+ 
++    const activeOutpaint = this.mode === "inpainting" && !!this.maskImage && this.maskImage === this.creativeOutpaintMask;
++    const outpaintDimensions = activeOutpaint ? this.creativeOutpaintDimensions : null;
+     const params: GenerationParams = {
+       mode: this.mode,
+       positive_prompt: translatedPositiveBase,
+@@ -4329,10 +4335,10 @@ class GenerationStore {
+       steps: this.steps,
+       cfg: this.cfg,
+       seed: seedSource,
+-      width: this.width,
+-      height: this.height,
++      width: outpaintDimensions?.width ?? this.width,
++      height: outpaintDimensions?.height ?? this.height,
+       batch_size: this.batchSize,
+-      denoise: this.denoise,
++      denoise: activeOutpaint ? this.creativeOutpaintDenoise : this.denoise,
+       differential_diffusion: this.differentialDiffusion,
+       input_image: this.inputImage,
+       mask_image: this.maskImage,

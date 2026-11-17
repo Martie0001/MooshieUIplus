@@ -1,0 +1,321 @@
+diff --git a/src/lib/components/generation/LoraGallery.svelte b/src/lib/components/generation/LoraGallery.svelte
+index 6eba690..87ede92 100644
+--- a/src/lib/components/generation/LoraGallery.svelte
++++ b/src/lib/components/generation/LoraGallery.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++  import { onMount } from "svelte";
+   import { loraKeywords } from "../../stores/loraKeywords.svelte.js";
+   import { civitaiModelPageUrl } from "../../utils/civitaiUrl.js";
+   import { generation } from "../../stores/generation.svelte.js";
+@@ -10,6 +11,8 @@
+   import { locale } from "../../stores/locale.svelte.js";
+   import {
+     civitaiLookupImage,
++    listModelFiles,
++    type ManagedModelFile,
+     fetchCachedImage,
+     getLoraCivitaiInfo,
+     saveModelSidecarThumbnail,
+@@ -27,6 +30,9 @@
+     type ModelGallerySort,
+   } from "../../utils/modelGallerySort.js";
+   import ModelPreviewActions from "./ModelPreviewActions.svelte";
++  import LoraFilterBar from "../../addons/lora-browser/LoraFilterBar.svelte";
++  import LoraExternalSearch from "../../addons/lora-browser/LoraExternalSearch.svelte";
++  import { classifyLora, matchesLora, type LoraFilter, type LoraGame } from "../../addons/lora-browser/loraCategories.js";
+ 
+   interface Props {
+     cardSize?: number;
+@@ -82,6 +88,19 @@
+   let selectedLora = $state<string | null>(null);
+   let imageIndex = $state<Record<string, number>>({});
+   let searchQuery = $state("");
++  const PANEL_KEY = "mooshieui.plus.loraPanel.v5";
++  const storedPanel = (() => { try { return JSON.parse(localStorage.getItem(PANEL_KEY) ?? "{}"); } catch { return {}; } })();
++  let managerExpanded = $state(storedPanel.manager ?? false);
++  let localExpanded = $state(storedPanel.local ?? true);
++  let viewMode = $state<"grid" | "list">(storedPanel.view === "list" ? "list" : "grid");
++  let refreshMenuOpen = $state(false);
++  let showScanPanel = $state(false);
++  let detailLora = $state<string | null>(null);
++  let localFiles = $state<ManagedModelFile[]>([]);
++  let refreshError = $state("");
++  let plusActiveTab = $state<LoraFilter>("all");
++  let plusAllType = $state<LoraFilter>("all");
++  let plusGameFilter = $state<LoraGame>("all");
+   let civitaiImageRef = $state("");
+   let civitaiImportBusy = $state(false);
+   let sortMode = $state<ModelGallerySort>(
+@@ -108,6 +127,41 @@
+     );
+   }
+ 
++  $effect(() => {
++    try { localStorage.setItem(PANEL_KEY, JSON.stringify({ manager: managerExpanded, local: localExpanded, view: viewMode })); } catch {}
++  });
++
++  onMount(() => { void updateLocalFiles(); });
++
++  async function updateLocalFiles() {
++    refreshError = "";
++    try { localFiles = await listModelFiles("loras"); }
++    catch (e) { refreshError = e instanceof Error ? e.message : String(e); }
++  }
++
++  async function refreshLocalLoras() {
++    refreshMenuOpen = false;
++    const ok = await models.refresh();
++    if (!ok) refreshError = "更新本地 LoRA 清單失敗";
++    await updateLocalFiles();
++  }
++
++  function getLocalFile(name: string): ManagedModelFile | undefined {
++    return localFiles.find((f) => f.filename.replaceAll("\\", "/") === name.replaceAll("\\", "/"));
++  }
++  function formattedFileSize(name: string): string {
++    const size = getLocalFile(name)?.size_bytes;
++    return size == null ? "—" : size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(2)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
++  }
++  function localTypes(name: string): string {
++    const labels = { style: "風格", character: "角色", effect: "效果", other: "其他" };
++    return classifyLora(name).types.map((t) => labels[t]).join(" / ");
++  }
++  function localBase(name: string): string {
++    const info = getInfo(name);
++    return info?.civitai_base_model || info?.modelspec_architecture || info?.family || "—";
++  }
++
+   function saveCache() {
+     try {
+       localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+@@ -123,7 +177,7 @@
+   // All available LoRAs, filtered by search
+   const filteredLoras = $derived(() => {
+     const q = searchQuery.toLowerCase().trim();
+-    let list = models.loras;
++    let list = models.loras.filter((name) => matchesLora(name, plusActiveTab, plusAllType, plusGameFilter));
+     if (q) {
+       list = list.filter((name) => {
+         const display = displayName(name).toLowerCase();
+@@ -518,8 +572,12 @@
+   });
+ </script>
+ 
+-<!-- Search + LoRA grid -->
+-<div class="flex flex-col h-full">
++<!-- LoRA Browser V5: independent external management and local catalog -->
++<div class="flex flex-col h-full overflow-y-auto">
++  <button type="button" class="mx-2 mt-1.5 flex shrink-0 items-center justify-between rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs font-medium text-neutral-200" aria-expanded={managerExpanded} onclick={() => managerExpanded = !managerExpanded}>
++    <span>LoRA 管理 · 外部搜尋</span><span>{managerExpanded ? "▲" : "▼"}</span>
++  </button>
++  {#if managerExpanded}
+   <div class="mx-2 mt-1.5 rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[11px] space-y-2">
+     <p class="text-neutral-400">{locale.t("lora_presets.title")}</p>
+     <div class="flex items-center gap-2">
+@@ -584,7 +642,23 @@
+     {/if}
+   </div>
+ 
+-  <!-- CivitAI bulk scan controls -->
++  <div class="mx-2 mt-1.5 space-y-2 rounded border border-neutral-800 bg-neutral-900/60 p-2">
++    <LoraExternalSearch />
++    <div class="flex items-center gap-1">
++      <input type="text" bind:value={civitaiImageRef} placeholder="CivitAI Image URL 或 ID（匯入圖片提示詞）"
++        class="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-100" />
++      <button type="button" disabled={civitaiImportBusy || !civitaiImageRef.trim()}
++        onclick={() => void importCivitaiImageMeta()} class="rounded border border-neutral-700 px-2 py-1 text-[11px] disabled:opacity-40">匯入提示詞</button>
++    </div>
++  </div>
++  {/if}
++
++  <button type="button" class="mx-2 mt-1.5 flex shrink-0 items-center justify-between rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs font-medium text-neutral-200" aria-expanded={localExpanded} onclick={() => localExpanded = !localExpanded}>
++    <span>本地LORA</span><span>{localExpanded ? "▲" : "▼"}</span>
++  </button>
++  {#if localExpanded}
++  <!-- CivitAI scan for local models only -->
++  {#if showScanPanel}
+   <div class="px-2 pt-1 pb-0.5 shrink-0">
+     {#if !civitaiScan.running && !civitaiScan.summary && !civitaiScan.progress}
+       <button
+@@ -663,54 +737,49 @@
+     {/if}
+   </div>
+ 
+-  <!-- Search bar + size slider -->
+-  <div class="px-2 pt-1.5 pb-1 shrink-0 space-y-1">
+-    <div class="flex gap-1 items-center">
+-      <select
+-        bind:value={sortMode}
+-        class="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-[10px] text-neutral-200 focus:outline-none focus:border-indigo-500"
+-        title={locale.t('model_gallery.sort_tip')}
+-      >
++  {/if}
++  <LoraFilterBar bind:activeTab={plusActiveTab} bind:allType={plusAllType} bind:gameFilter={plusGameFilter} />
++
++  <!-- Second toolbar: sort, refresh, local search, then display controls on the right. -->
++  <div class="shrink-0 px-2 pt-1.5 pb-1 space-y-1">
++    <div class="flex flex-wrap items-center gap-1.5">
++      <label for="plus-lora-sort" class="shrink-0 text-[11px] text-neutral-500">排序</label>
++      <select id="plus-lora-sort" bind:value={sortMode}
++        class="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-[11px] text-neutral-200">
+         <option value="name">{locale.t('model_gallery.sort_name')}</option>
+         <option value="folder">{locale.t('model_gallery.sort_folder')}</option>
+         <option value="tree">{locale.t('model_gallery.sort_tree')}</option>
+         <option value="family">{locale.t('model_gallery.sort_family')}</option>
+       </select>
+-      <input
+-        type="text"
+-        bind:value={civitaiImageRef}
+-        placeholder={locale.t('checkpoint.civitai_image_ref_placeholder')}
+-        class="min-w-0 flex-1 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+-      />
+-      <button
+-        type="button"
+-        disabled={civitaiImportBusy || !civitaiImageRef.trim()}
+-        onclick={() => void importCivitaiImageMeta()}
+-        class="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-[10px] text-neutral-200 hover:border-indigo-500 disabled:opacity-40"
+-        title={locale.t('checkpoint.civitai_image_ref_tip')}
+-      >
+-        {civitaiImportBusy ? "…" : locale.t('checkpoint.civitai_import_prompt')}
+-      </button>
+-    </div>
+-    <div class="flex items-center gap-2">
+-    <input
+-      type="text"
+-      bind:value={searchQuery}
+-      placeholder={locale.t('lora.search_placeholder')}
+-      class="flex-1 bg-neutral-800 border border-neutral-700 rounded px-2.5 py-1 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
+-    />
+-    <div use:scrollCapture>
+-      <input
+-        type="range"
+-        min="60"
+-        max="200"
+-        value={cardSize}
+-        oninput={(e) => onCardSizeChange?.(Number(e.currentTarget.value))}
+-        class="w-16 h-4 accent-indigo-500 cursor-pointer"
+-        title={locale.t('bottom_panel.card_size')}
+-      />
+-    </div>
++      <div class="relative flex shrink-0 items-center">
++        <button type="button" class="rounded-l border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] hover:border-indigo-500"
++          onclick={() => void refreshLocalLoras()}>重新整理</button>
++        <button type="button" class="rounded-r border border-l-0 border-neutral-700 bg-neutral-800 px-1 py-1 text-[11px]" aria-label="重新整理選單"
++          aria-expanded={refreshMenuOpen} onclick={() => refreshMenuOpen = !refreshMenuOpen}>▼</button>
++        {#if refreshMenuOpen}
++          <div class="absolute left-0 top-full z-30 mt-1 min-w-44 rounded border border-neutral-600 bg-neutral-900 p-1 shadow-lg">
++            <button type="button" class="block w-full rounded px-2 py-1 text-left text-[11px] hover:bg-neutral-800"
++              onclick={() => void refreshLocalLoras()}>重新整理本地 LoRA</button>
++            <button type="button" class="block w-full rounded px-2 py-1 text-left text-[11px] hover:bg-neutral-800"
++              onclick={() => { refreshMenuOpen = false; showScanPanel = true; void civitaiScan.scan(false); }}>更新 CivitAI 資訊</button>
++          </div>
++        {/if}
++      </div>
++      <input type="search" bind:value={searchQuery} placeholder="搜尋本地 LoRA" aria-label="搜尋本地 LoRA"
++        class="min-w-[120px] flex-[1_1_180px] rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-100" />
++      <div class="ml-auto flex shrink-0 items-center gap-1.5" role="group" aria-label="LoRA 顯示方式">
++        <button type="button" class="rounded border px-1.5 py-1 text-xs {viewMode === 'grid' ? 'border-indigo-500 text-indigo-300' : 'border-neutral-700 text-neutral-400'}"
++          title="圖式" aria-label="圖式" aria-pressed={viewMode === "grid"} onclick={() => viewMode = "grid"}>▦</button>
++        <button type="button" class="rounded border px-1.5 py-1 text-xs {viewMode === 'list' ? 'border-indigo-500 text-indigo-300' : 'border-neutral-700 text-neutral-400'}"
++          title="清單" aria-label="清單" aria-pressed={viewMode === "list"} onclick={() => viewMode = "list"}>☰</button>
++        <div use:scrollCapture class={viewMode === "grid" ? "" : "hidden"}>
++          <input type="range" min="60" max="200" value={cardSize}
++            oninput={(e) => onCardSizeChange?.(Number(e.currentTarget.value))}
++            class="w-16 h-4 cursor-pointer accent-indigo-500" title="縮圖大小" />
++        </div>
++      </div>
+     </div>
++    {#if refreshError}<p class="text-amber-300 text-[10px]" role="alert">{refreshError}</p>{/if}
+   </div>
+ 
+   {#if loraInfoAccessBlocked}
+@@ -870,6 +939,8 @@
+                   {displayName(loraName)}
+                 </h4>
+               </button>
++              <button type="button" class="shrink-0 rounded border border-neutral-700 px-1.5 text-neutral-300 hover:border-indigo-500" title="詳細資訊" aria-label="查看詳細資訊"
++                onclick={(e) => { e.stopPropagation(); detailLora = loraName; }}>ⓘ</button>
+               {#if info?.civitai_model_id}
+                 <a
+                   href={civitaiModelPageUrl(info.civitai_model_id, info.civitai_nsfw)}
+@@ -967,7 +1038,30 @@
+     {/snippet}
+ 
+     <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
+-      {#if sortMode === "tree" && loraTree}
++      {#if viewMode === "list"}
++        <div class="min-w-[480px] space-y-0.5 text-[11px]">
++          <div class="grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px_36px] items-center gap-2 border-b border-neutral-700 px-1 py-1 text-neutral-400">
++            <span>縮圖</span><span>名稱</span><span>分類</span><span>底模</span><span>大小</span><span>詳細</span>
++          </div>
++          {#each filteredLoras() as loraName (loraName)}
++            {@const imgUrl = currentImageUrl(loraName)}
++            {@const thumbUrl = imgUrl ? (imgUrl.startsWith("data:") ? imgUrl : resolvedImages[imgUrl]) : null}
++            {@const active = isLoraEnabled(loraName)}
++            <div use:lazyFetch={loraName} class="grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px_36px] items-center gap-2 rounded border px-1 py-1 transition-colors {active ? 'border-indigo-500/60 bg-indigo-500/15' : 'border-neutral-800 hover:bg-neutral-800/60'}">
++              <button type="button" class="col-span-5 grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px] items-center gap-2 text-left" aria-pressed={active}
++                onclick={() => { selectedLora = loraName; toggleLoraByName(loraName); }}>
++                {#if thumbUrl}<img src={thumbUrl} alt="" class="h-10 w-10 rounded object-cover" />{:else}<span class="flex h-10 w-10 items-center justify-center rounded bg-neutral-800 text-neutral-600">▧</span>{/if}
++                <span class="truncate font-medium text-neutral-200" title={loraName}>{displayName(loraName)}{active ? " ✓" : ""}</span>
++                <span class="truncate text-neutral-400" title={localTypes(loraName)}>{localTypes(loraName)}</span>
++                <span class="truncate text-neutral-400" title={localBase(loraName)}>{localBase(loraName)}</span>
++                <span class="text-neutral-400">{formattedFileSize(loraName)}</span>
++              </button>
++              <button type="button" class="rounded border border-neutral-700 px-1 py-1 text-neutral-300 hover:border-indigo-500"
++                aria-label="查看詳細資訊" title="詳細資訊" onclick={() => detailLora = loraName}>ⓘ</button>
++            </div>
++          {/each}
++        </div>
++      {:else if sortMode === "tree" && loraTree}
+         <div class="space-y-0.5">
+           {#each loraTree.folders as folder (folder.path)}
+             {@render folderGroup(folder, 0)}
+@@ -989,4 +1083,47 @@
+       {/if}
+     </div>
+   {/if}
++  {#if detailLora}
++    {@const info = getInfo(detailLora)}
++    {@const file = getLocalFile(detailLora)}
++    {@const imgUrl = currentImageUrl(detailLora)}
++    {@const resolved = imgUrl ? (imgUrl.startsWith("data:") ? imgUrl : resolvedImages[imgUrl]) : null}
++    <div class="fixed inset-0 z-[210] flex justify-end bg-black/60" role="presentation" onclick={() => detailLora = null} onkeydown={(e) => { if (e.key === "Escape") detailLora = null; }}>
++      <section role="dialog" aria-modal="true" aria-label="LoRA 詳細資訊"
++        class="h-full w-full max-w-md overflow-y-auto border-l border-neutral-700 bg-neutral-900 p-4 text-xs shadow-xl"
++        onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
++        <div class="mb-3 flex items-center justify-between">
++          <h3 class="text-sm font-semibold text-neutral-100">LoRA 詳細資訊</h3>
++          <button type="button" onclick={() => detailLora = null} class="rounded border border-neutral-700 px-2 py-1">關閉 ×</button>
++        </div>
++        {#if resolved}<img src={resolved} alt="" class="mb-3 max-h-56 w-full rounded object-contain" />{/if}
++        <dl class="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2 gap-y-2 break-all text-neutral-300">
++          <dt class="text-neutral-500">名稱</dt><dd>{displayName(detailLora)}</dd>
++          <dt class="text-neutral-500">分類</dt><dd>{localTypes(detailLora)}</dd>
++          <dt class="text-neutral-500">底模</dt><dd>{localBase(detailLora)}</dd>
++          <dt class="text-neutral-500">作者</dt><dd>{info?.civitai_creator ?? info?.modelspec_author ?? "—"}</dd>
++          <dt class="text-neutral-500">大小</dt><dd>{formattedFileSize(detailLora)}</dd>
++          <dt class="text-neutral-500">修改日期</dt><dd>{file ? new Date(file.modified_ms).toLocaleString() : "—"}</dd>
++          <dt class="text-neutral-500">檔案位置</dt><dd class="break-all">{file?.path ?? "—"}</dd>
++          <dt class="text-neutral-500">Hash</dt><dd>{info?.hash ?? "—"}</dd>
++          <dt class="text-neutral-500">下載量</dt><dd>{info?.civitai_download_count?.toLocaleString() ?? "—"}</dd>
++        </dl>
++        <div class="mt-4 space-y-2">
++          <h4 class="font-medium text-neutral-200">Trigger Words</h4>
++          <div class="flex flex-wrap gap-1">
++            {#each (info?.civitai_trigger_words?.length ? info.civitai_trigger_words : (info?.modelspec_trigger_phrase ?? "").split(",").map((s) => s.trim()).filter(Boolean)) as word}
++              <button type="button" class="rounded border border-indigo-600/40 px-2 py-1 text-indigo-300" onclick={() => addTriggerWord(detailLora!, word)}>{word}</button>
++            {/each}
++          </div>
++          {#if info?.civitai_description || info?.modelspec_description}
++            <p class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-neutral-400">{info.civitai_description ?? info.modelspec_description}</p>
++          {/if}
++          {#if info?.civitai_model_id}
++            <a href={civitaiModelPageUrl(info.civitai_model_id, info.civitai_nsfw)} target="_blank" rel="noopener noreferrer" class="text-indigo-300 underline">開啟 CivitAI</a>
++          {/if}
++        </div>
++      </section>
++    </div>
++  {/if}
++  {/if}
+ </div>

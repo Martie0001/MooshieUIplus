@@ -1,0 +1,269 @@
+diff --git a/src/lib/components/generation/LoraGallery.svelte b/src/lib/components/generation/LoraGallery.svelte
+index a945a6d..f00a3cf 100644
+--- a/src/lib/components/generation/LoraGallery.svelte
++++ b/src/lib/components/generation/LoraGallery.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
+   import { onMount } from "svelte";
++  import { ipcInvoke } from "../../utils/ipc.js";
+   import { loraKeywords } from "../../stores/loraKeywords.svelte.js";
+   import { civitaiModelPageUrl } from "../../utils/civitaiUrl.js";
+   import { generation } from "../../stores/generation.svelte.js";
+   import { models } from "../../stores/models.svelte.js";
+@@ -31,9 +32,9 @@
+   } from "../../utils/modelGallerySort.js";
+   import ModelPreviewActions from "./ModelPreviewActions.svelte";
+   import LoraFilterBar from "../../addons/lora-browser/LoraFilterBar.svelte";
+   import LoraExternalSearch from "../../addons/lora-browser/LoraExternalSearch.svelte";
+-  import { availableLoraGames, classifyLora, matchesLora, type LoraFilter, type LoraGame } from "../../addons/lora-browser/loraCategories.js";
++  import { availableLoraGames, classifyLora, matchesLora, type LoraFilter, type LoraGame, type LoraType } from "../../addons/lora-browser/loraCategories.js";
+ 
+   interface Props {
+     cardSize?: number;
+     onCardSizeChange?: (size: number) => void;
+@@ -81,9 +82,10 @@
+     } catch {}
+     return {};
+   }
+ 
+-  let cache = $state<Record<string, CacheEntry>>(loadCache());
++  let cache = $state<Record<string, CacheEntry>>({});
++  let cacheLoaded = false;
+   let loading = $state<Record<string, boolean>>({});
+   let errors = $state<Record<string, string>>({});
+   let selectedLora = $state<string | null>(null);
+   let imageIndex = $state<Record<string, number>>({});
+@@ -97,11 +99,16 @@
+   let showScanPanel = $state(false);
+   let detailLora = $state<string | null>(null);
+   let localFiles = $state<ManagedModelFile[]>([]);
+   let refreshError = $state("");
+-  let plusActiveTab = $state<LoraFilter>("all");
+-  let plusAllType = $state<LoraFilter>("all");
+-  let plusGameFilter = $state<LoraGame>("all");
++  // A type and a folder must both be chosen before cards can be created.
++  let plusActiveTab = $state<LoraFilter | "">("");
++  let plusGameFilter = $state<LoraGame | "">("");
++  let categoryOverrides = $state<Record<string, LoraType[]>>({});
++  let visibleCount = $state(30);
++  let visibleLoraNames = $state<Set<string>>(new Set());
++  let localFilesRequested = false;
++  const loadReady = $derived(plusActiveTab !== "" && plusGameFilter !== "");
+   let civitaiImageRef = $state("");
+   let civitaiImportBusy = $state(false);
+   let sortMode = $state<ModelGallerySort>(
+     (typeof window !== "undefined" &&
+@@ -130,9 +137,44 @@
+   $effect(() => {
+     try { localStorage.setItem(PANEL_KEY, JSON.stringify({ manager: managerExpanded, local: localExpanded, view: viewMode })); } catch {}
+   });
+ 
+-  onMount(() => { void updateLocalFiles(); });
++  onMount(() => { void loadCategoryTypes(); });
++
++  async function loadCategoryTypes() {
++    try {
++      const catalog = await ipcInvoke<{ types?: Record<string, LoraType[]> }>("lora_info_action", { action: "list", filename: "" });
++      categoryOverrides = catalog.types ?? {};
++    } catch (error) {
++      // Browser remains usable when the separate LoRA Info module is absent.
++      console.warn("LoRA classification overrides unavailable; using bundled records", error);
++    }
++  }
++
++  $effect(() => {
++    void plusActiveTab;
++    void plusGameFilter;
++    void searchQuery;
++    void sortMode;
++    visibleCount = 30;
++    visibleLoraNames = new Set();
++    fetchQueue = [];
++  });
++
++  $effect(() => {
++    if (loadReady && !cacheLoaded) {
++      cacheLoaded = true;
++      cache = loadCache();
++    }
++  });
++
++  // File size/details are only needed in list mode or the detail drawer.
++  $effect(() => {
++    if (loadReady && (viewMode === "list" || detailLora) && !localFilesRequested) {
++      localFilesRequested = true;
++      void updateLocalFiles();
++    }
++  });
+ 
+   async function updateLocalFiles() {
+     refreshError = "";
+     try { localFiles = await listModelFiles("loras"); }
+@@ -154,9 +196,11 @@
+     return size == null ? "—" : size >= 1024 ** 3 ? `${(size / 1024 ** 3).toFixed(2)} GB` : `${(size / 1024 ** 2).toFixed(1)} MB`;
+   }
+   function localTypes(name: string): string {
+     const labels = { style: "風格", character: "角色", effect: "效果", other: "其他" };
+-    return classifyLora(name).types.map((t) => labels[t]).join(" / ");
++    const result = classifyLora(name, categoryOverrides, cache[name]?.data);
++    const names = result.types.map((t) => labels[t]).join(" / ");
++    return result.inferred ? `${names}（推測）` : names;
+   }
+   function localBase(name: string): string {
+     const info = getInfo(name);
+     return info?.civitai_base_model || info?.modelspec_architecture || info?.family || "—";
+@@ -175,10 +219,13 @@
+   });
+ 
+   // All available LoRAs, filtered by search
+   const filteredLoras = $derived(() => {
++    if (!loadReady) return [];
+     const q = searchQuery.toLowerCase().trim();
+-    let list = models.loras.filter((name) => matchesLora(name, plusActiveTab, plusAllType, plusGameFilter));
++    let list = models.loras.filter((name) =>
++      matchesLora(name, plusActiveTab, plusGameFilter, categoryOverrides, cache[name]?.data)
++    );
+     if (q) {
+       list = list.filter((name) => {
+         const display = displayName(name).toLowerCase();
+         const filename = name.toLowerCase();
+@@ -199,12 +246,24 @@
+   });
+ 
+   // Folder tree for the "tree" sort mode, built from the already-filtered and
+   // enabled-first list so grouping and ordering stay consistent with the grid.
++  const pagedLoras = $derived(filteredLoras().slice(0, visibleCount));
++  const hasMore = $derived(visibleCount < filteredLoras().length);
++
+   const loraTree = $derived(
+-    sortMode === "tree" ? buildFilenameTree(filteredLoras()) : null,
++    sortMode === "tree" ? buildFilenameTree(pagedLoras) : null,
+   );
+ 
++  function loadMore() {
++    if (hasMore) visibleCount += 30;
++  }
++
++  function loadMoreOnScroll(event: Event) {
++    const node = event.currentTarget as HTMLElement;
++    if (node.scrollHeight - node.scrollTop - node.clientHeight < 220) loadMore();
++  }
++
+   function toggleFolder(path: string) {
+     const next = new Set(collapsedFolders);
+     if (next.has(path)) next.delete(path);
+     else next.add(path);
+@@ -364,22 +423,30 @@
+     saveCache();
+     enqueueFetch(filename);
+   }
+ 
+-  // IntersectionObserver action to trigger lazy loading
++  // Only cards intersecting the viewport may fetch model metadata and thumbnails.
+   function lazyFetch(node: HTMLElement, filename: string) {
+     const observer = new IntersectionObserver(
+       (entries) => {
+         if (entries[0]?.isIntersecting) {
++          visibleLoraNames = new Set([...visibleLoraNames, filename]);
+           enqueueFetch(filename);
+           observer.disconnect();
+         }
+       },
+       { threshold: 0.1 }
+     );
+     observer.observe(node);
+     return {
+-      destroy() { observer.disconnect(); }
++      destroy() {
++        observer.disconnect();
++        if (visibleLoraNames.has(filename)) {
++          const next = new Set(visibleLoraNames);
++          next.delete(filename);
++          visibleLoraNames = next;
++        }
++      }
+     };
+   }
+ 
+   function getInfo(filename: string): LoraCivitaiInfo | null {
+@@ -560,14 +627,15 @@
+       resolvingImages.delete(url);
+     }
+   }
+ 
+-  // Resolve the currently-visible image for a LoRA whenever it changes.
++  // Keep cached previews lazy too: do not fetch every image in localStorage on startup.
+   $effect(() => {
+-    for (const loraName of Object.keys(cache)) {
++    if (!loadReady) return;
++    for (const loraName of visibleLoraNames) {
+       const url = currentImageUrl(loraName);
+-      if (url && !resolvedImages[url]) {
+-        resolveImage(url);
++      if (url && !url.startsWith("data:") && !resolvedImages[url]) {
++        void resolveImage(url);
+       }
+     }
+   });
+ </script>
+@@ -737,9 +805,9 @@
+     {/if}
+   </div>
+ 
+   {/if}
+-  <LoraFilterBar bind:activeTab={plusActiveTab} bind:allType={plusAllType} bind:gameFilter={plusGameFilter} games={availableLoraGames(models.loras)} />
++  <LoraFilterBar bind:activeTab={plusActiveTab} bind:gameFilter={plusGameFilter} games={availableLoraGames(models.loras)} />
+ 
+   <!-- Second toolbar: sort, refresh, local search, then display controls on the right. -->
+   <div class="shrink-0 px-2 pt-1.5 pb-1 space-y-1">
+     <div class="flex flex-wrap items-center gap-1.5">
+@@ -802,8 +870,12 @@
+   {#if models.loras.length === 0}
+     <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs">
+       <p>{locale.t('lora.no_loras')}</p>
+     </div>
++  {:else if !loadReady}
++    <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs px-3 py-6">
++      <p>請先選擇 LoRA 類型，再選擇資料夾或按「全選資料夾」。</p>
++    </div>
+   {:else if filteredLoras().length === 0}
+     <div class="flex items-center justify-center flex-1 text-neutral-500 text-xs">
+       <p>{locale.t('lora.no_results', { query: searchQuery })}</p>
+     </div>
+@@ -1036,15 +1108,15 @@
+         {/if}
+       </div>
+     {/snippet}
+ 
+-    <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
++    <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5" onscroll={loadMoreOnScroll}>
+       {#if viewMode === "list"}
+         <div class="min-w-[480px] space-y-0.5 text-[11px]">
+           <div class="grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px_36px] items-center gap-2 border-b border-neutral-700 px-1 py-1 text-neutral-400">
+             <span>縮圖</span><span>名稱</span><span>分類</span><span>底模</span><span>大小</span><span>詳細</span>
+           </div>
+-          {#each filteredLoras() as loraName (loraName)}
++          {#each pagedLoras as loraName (loraName)}
+             {@const imgUrl = currentImageUrl(loraName)}
+             {@const thumbUrl = imgUrl ? (imgUrl.startsWith("data:") ? imgUrl : resolvedImages[imgUrl]) : null}
+             {@const active = isLoraEnabled(loraName)}
+             <div use:lazyFetch={loraName} class="grid grid-cols-[44px_minmax(100px,2fr)_minmax(55px,1fr)_minmax(60px,1fr)_55px_36px] items-center gap-2 rounded border px-1 py-1 transition-colors {active ? 'border-indigo-500/60 bg-indigo-500/15' : 'border-neutral-800 hover:bg-neutral-800/60'}">
+@@ -1075,13 +1147,17 @@
+           {/if}
+         </div>
+       {:else}
+         <div class="grid gap-2.5" style="grid-template-columns: repeat(auto-fill, minmax({cardSize}px, 1fr));">
+-          {#each filteredLoras() as loraName (loraName)}
++          {#each pagedLoras as loraName (loraName)}
+             {@render loraCard(loraName)}
+           {/each}
+         </div>
+       {/if}
++      {#if hasMore}
++        <button type="button" class="mt-3 w-full rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs text-neutral-200 hover:border-indigo-500"
++          onclick={loadMore}>載入更多（已顯示 {pagedLoras.length} / {filteredLoras().length}）</button>
++      {/if}
+     </div>
+   {/if}
+   {#if detailLora}
+     {@const info = getInfo(detailLora)}

@@ -1,0 +1,192 @@
+diff --git a/src/App.svelte b/src/App.svelte
+--- a/src/App.svelte
++++ b/src/App.svelte
+@@ -822,6 +822,18 @@
+   // The open page, shared by both layouts: the phone shell binds to it too, so
+   // every "go to Generate" below works there as well.
+   let currentPage = $state<PrimaryPage>("generate");
++  let creativeHandoff = $state<{ id: number; image: OutputImage; tool: "reference" | "outpaint" | "pose" | "postprocess"; kind?: "character" | "outfit" | "style" } | null>(null);
++  let creativeHandoffSequence = 0;
++  function sendToCreativeTools(
++    image: OutputImage,
++    tool: "reference" | "outpaint" | "pose" | "postprocess",
++    kind?: "character" | "outfit" | "style",
++  ) {
++    if (isVideoImage(image)) return;
++    gallery.closeLightbox();
++    creativeHandoff = { id: ++creativeHandoffSequence, image, tool, kind };
++    currentPage = "generate";
++  }
+   let generationDoneToast = $state<GenerationDoneToast | null>(null);
+ 
+   function openGenerationWorkspace(workspace: "image" | "video") {
+@@ -1333,6 +1345,25 @@
+         action: () => void setGalleryImageAsModelThumb(image, "loras", thumbLora),
+       });
+     }
++    if (!isVideoImage(image)) {
++      const referenceSlots: { kind: "character" | "outfit" | "style"; label: string }[] =
++        generation.modelFamily === "anima"
++          ? [{ kind: "style", label: "畫風" }]
++          : ["qwen_edit", "qwen_edit_plus"].includes(generation.modelFamily)
++            ? [{ kind: "character", label: "角色" }, { kind: "outfit", label: "服裝" }, { kind: "style", label: "畫風" }]
++            : ["sd15", "sdxl", "illustrious", "pony"].includes(generation.modelFamily)
++              ? [{ kind: "character", label: "角色" }, { kind: "style", label: "畫風" }]
++              : [];
++      items.push({ label: "", action: () => {}, separator: true });
++      for (const slot of referenceSlots) {
++        items.push({ label: `Creative Tools｜08 ${slot.label}參考`, action: () => sendToCreativeTools(image, "reference", slot.kind) });
++      }
++      items.push(
++        { label: "Creative Tools｜11 圖片向外延伸", action: () => sendToCreativeTools(image, "outpaint") },
++        { label: "Creative Tools｜22 姿勢控制", action: () => sendToCreativeTools(image, "pose") },
++        { label: "Creative Tools｜31 自動後製", action: () => sendToCreativeTools(image, "postprocess") },
++      );
++    }
+     items.push(
+       { label: "", action: () => {}, separator: true },
+       { label: locale.t("gallery.img2img"), action: () => img2imgImage(image) },
+@@ -4076,7 +4107,7 @@
+     {@render startupBanner(false)}
+     <div class="relative flex-1 overflow-hidden md:min-h-0 {currentPage === 'generate' ? '' : 'md:rounded-xl md:bg-neutral-950'}" inert={startup.locked}>
+     {#if currentPage === "generate"}
+-      <GenerationPage />
++      <GenerationPage {creativeHandoff} />
+     {:else if currentPage === "music"}
+       <MusicPage {userRole} />
+     {:else if currentPage === "model3d" && model3d.enabled}
+@@ -4084,7 +4115,7 @@
+     {:else if currentPage === "scene"}
+       <ScenePage onOpenSettings={() => (currentPage = "settings")} />
+     {:else if currentPage === "gallery"}
+-      <GalleryPage onSwitchToGenerate={() => (currentPage = "generate")} onMake3D={model3d.enabled ? (image) => { void model3d.useGalleryImage(image); currentPage = "model3d"; } : undefined} />
++      <GalleryPage onSwitchToGenerate={() => (currentPage = "generate")} onOpenContextMenu={openContextMenu} onMake3D={model3d.enabled ? (image) => { void model3d.useGalleryImage(image); currentPage = "model3d"; } : undefined} />
+     {:else if currentPage === "modelhub"}
+       <ModelHubPage />
+     {:else if currentPage === "artists"}
+diff --git a/src/lib/components/gallery/GalleryPage.svelte b/src/lib/components/gallery/GalleryPage.svelte
+--- a/src/lib/components/gallery/GalleryPage.svelte
++++ b/src/lib/components/gallery/GalleryPage.svelte
+@@ -24,11 +24,13 @@
+ 
+   interface Props {
+     onSwitchToGenerate?: () => void;
++    /** Open historical image actions using the app's existing context menu. */
++    onOpenContextMenu?: (event: MouseEvent, image: OutputImage) => void;
+     /** Open the 3D page with this image as the source. */
+     onMake3D?: (image: OutputImage) => void;
+   }
+ 
+-  let { onSwitchToGenerate, onMake3D }: Props = $props();
++  let { onSwitchToGenerate, onOpenContextMenu, onMake3D }: Props = $props();
+ 
+   let newBoardName = $state("");
+   // Detailed view only: its rows vary in height, so it grows as you scroll
+@@ -1082,7 +1084,8 @@
+                 <div></div><div>{locale.t("gallery.col_preview")}</div><div>{locale.t("gallery.col_name")}</div><div>{locale.t("gallery.col_date")}</div><div>{locale.t("gallery.col_size")}</div><div>{locale.t("gallery.col_actions")}</div>
+               </div>
+               {#each group.images as image (image)}
+-                <div class="grid grid-cols-[28px_72px_1fr_150px_120px_420px] gap-2 px-3 py-2 items-center border-b border-neutral-900/80 last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_76px] {selection.has(image) ? 'bg-indigo-500/10' : ''} {cursor === image ? 'outline-2 -outline-offset-2 outline-white' : ''}" data-gallery-cursor={cursor === image ? "" : undefined}>
++                <div class="grid grid-cols-[28px_72px_1fr_150px_120px_420px] gap-2 px-3 py-2 items-center border-b border-neutral-900/80 last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_76px] {selection.has(image) ? 'bg-indigo-500/10' : ''} {cursor === image ? 'outline-2 -outline-offset-2 outline-white' : ''}" data-gallery-cursor={cursor === image ? "" : undefined}
++                  oncontextmenu={(event) => onOpenContextMenu?.(event, image)}> 
+                   {@render selectBox(image, true)}
+                   <button class="w-14 h-14 rounded border border-neutral-800 overflow-hidden" onclick={(e) => onTileClick(e, image)}>
+                     <img use:lazyThumbnail={{ image, size: thumbSize }} alt={image.filename} loading="lazy" decoding="async" class="w-full h-full object-cover {gallery.shouldBlur(image) ? 'blur-md scale-110' : ''}" />
+@@ -1179,7 +1182,9 @@
+                 {:else}
+                   <div class="grid" style="grid-template-columns: repeat({gridColumns}, minmax(0, 1fr)); gap: {GRID_GAP}px; height: {tileHeight}px; margin-bottom: {GRID_GAP}px;">
+                     {#each row.images as image (image)}
+-                    <div role="presentation" ondragstart={(e) => onTileDragStart(e, image)} ondragend={onTileDragEnd} class="group relative h-full rounded-lg overflow-hidden border transition-colors {selection.has(image) ? 'border-indigo-400 ring-2 ring-indigo-500' : 'border-neutral-800 hover:border-indigo-500'} {cursor === image ? 'outline-2 outline-offset-2 outline-white' : ''}">
++                    <div role="presentation" ondragstart={(e) => onTileDragStart(e, image)} ondragend={onTileDragEnd}
++                      oncontextmenu={(event) => onOpenContextMenu?.(event, image)}
++                      class="group relative h-full rounded-lg overflow-hidden border transition-colors {selection.has(image) ? 'border-indigo-400 ring-2 ring-indigo-500' : 'border-neutral-800 hover:border-indigo-500'} {cursor === image ? 'outline-2 outline-offset-2 outline-white' : ''}">
+                       <button
+                         class="w-full h-full"
+                         title={isVideoImage(image) ? locale.t("gallery.play_video") : image.filename}
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -74,8 +74,9 @@
+ 
+   interface Props {
+     mobileFriendly?: boolean;
++    creativeHandoff?: { id: number; image: OutputImage; tool: CreativeTool; kind?: ReferenceKind } | null;
+   }
+-  let { mobileFriendly = false }: Props = $props();
++  let { mobileFriendly = false, creativeHandoff = null }: Props = $props();
+ 
+   const storageSuffix = mobileFriendly ? ".mobile" : ".desktop";
+   let creativeToolsOpen = $state(false);
+@@ -167,10 +168,10 @@
+     gallery.showToast(`請在下方圖庫對圖片按右鍵，選擇送到 08「${REFERENCE_LABELS[kind]}」`, "success");
+   }
+ 
+-  function selectCreativeReference(image: OutputImage) {
++  function selectCreativeReference(image: OutputImage, kind: ReferenceKind = creativeReferencePickTarget) {
++    creativeReferencePickTarget = kind;
+     creativeTool = "reference";
+     creativeToolsOpen = true;
+-    const kind = creativeReferencePickTarget;
+     void loadCreativeReference(kind, async () =>
+       (await loadOutputImageForGenerationInput(image, `creative_reference_${kind}.png`)).bytes,
+     );
+@@ -314,6 +315,17 @@
+     creativeToolsOpen = true;
+     void readCreativeSourceSize(image, null);
+   }
++  let lastCreativeHandoffId = 0;
++  $effect(() => {
++    const request = creativeHandoff;
++    if (!request || request.id === lastCreativeHandoffId) return;
++    lastCreativeHandoffId = request.id;
++    if (request.tool === "reference") {
++      selectCreativeReference(request.image, request.kind ?? (generation.modelFamily === "anima" ? "style" : "character"));
++    } else {
++      selectCreativeSource(request.image, request.tool);
++    }
++  });
+   async function creativeSelectLocal(file: File) {
+     if (creativeBusy) return;
+     creativeBusy = true;
+@@ -333,7 +345,7 @@
+       creativeBusy = false;
+     }
+   }
+-  async function creativeToOutpaint(direction: OutpaintDirection, amount: number, unit: OutpaintAmountUnit) {
++  async function creativeToOutpaint(direction: OutpaintDirection, amount: number, unit: OutpaintAmountUnit, denoise: number) {
+     if ((!creativeSource && !creativeLocalBytes) || creativeBusy || creativeSourceLoading) return;
+     if (!creativeOutpaintBytes || !creativeSourceSize) {
+       creativeError = "尚未取得來源圖片尺寸，無法計算延伸範圍";
+@@ -363,6 +375,9 @@
+       applyNormalizedImagePreview(normalized);
+       generation.inputImage = input.name;
+       generation.maskImage = mask.name;
++      // Apply the strength only while this exact Creative Tools mask is active.
++      generation.creativeOutpaintMask = mask.name;
++      generation.creativeOutpaintDenoise = denoise;
+       if (maskPreviewUrl) URL.revokeObjectURL(maskPreviewUrl);
+       maskPreviewUrl = URL.createObjectURL(new Blob([new Uint8Array(prepared.maskBytes)], { type: "image/png" }));
+       canvas.setPersistedMaskPreview(maskPreviewUrl);
+diff --git a/src/lib/stores/generation.svelte.ts b/src/lib/stores/generation.svelte.ts
+--- a/src/lib/stores/generation.svelte.ts
++++ b/src/lib/stores/generation.svelte.ts
+@@ -817,6 +817,9 @@ class GenerationStore {
+   denoise = $state(0.7);
+   inputImage = $state<string | null>(null);
+   maskImage = $state<string | null>(null);
++  /** In-memory, mask-specific outpaint override; regular inpainting keeps its own denoise. */
++  creativeOutpaintMask = $state<string | null>(null);
++  creativeOutpaintDenoise = $state(1);
+   growMaskBy = $state(6);
+   differentialDiffusion = $state(false);
+   upscaleEnabled = $state(false);
+@@ -4327,7 +4330,8 @@ class GenerationStore {
+       width: this.width,
+       height: this.height,
+       batch_size: this.batchSize,
+-      denoise: this.denoise,
++      denoise: this.mode === "inpainting" && this.maskImage && this.maskImage === this.creativeOutpaintMask
++        ? this.creativeOutpaintDenoise : this.denoise,
+       differential_diffusion: this.differentialDiffusion,
+       input_image: this.inputImage,
+       mask_image: this.maskImage,

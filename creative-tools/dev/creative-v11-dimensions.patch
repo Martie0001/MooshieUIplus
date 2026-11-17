@@ -1,0 +1,39 @@
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -369,6 +369,7 @@
+       generation.inputImage = input.name;
+       generation.maskImage = mask.name;
++      generation.creativeOutpaintDimensions = { width: prepared.imageWidth, height: prepared.imageHeight };
+       // Apply the strength only while this exact Creative Tools mask is active.
+       generation.creativeOutpaintMask = mask.name;
+       generation.creativeOutpaintDenoise = denoise;
+diff --git a/src/lib/stores/generation.svelte.ts b/src/lib/stores/generation.svelte.ts
+--- a/src/lib/stores/generation.svelte.ts
++++ b/src/lib/stores/generation.svelte.ts
+@@ -819,6 +819,7 @@
+   /** In-memory, mask-specific outpaint override; regular inpainting keeps its own denoise. */
+   creativeOutpaintMask = $state<string | null>(null);
++  creativeOutpaintDimensions = $state<{ width: number; height: number } | null>(null);
+   creativeOutpaintDenoise = $state(1);
+   growMaskBy = $state(6);
+@@ -4297,6 +4298,8 @@
+-    const params: GenerationParams = {
++    const activeOutpaint = this.mode === "inpainting" && !!this.maskImage && this.maskImage === this.creativeOutpaintMask;
++    const outpaintDimensions = activeOutpaint ? this.creativeOutpaintDimensions : null;
++    const params: GenerationParams = {
+       mode: this.mode,
+       positive_prompt: translatedPositiveBase,
+@@ -4329,11 +4332,10 @@
+       cfg: this.cfg,
+       seed: seedSource,
+-      width: this.width,
+-      height: this.height,
++      width: outpaintDimensions?.width ?? this.width,
++      height: outpaintDimensions?.height ?? this.height,
+       batch_size: this.batchSize,
+-      denoise: this.mode === "inpainting" && this.maskImage && this.maskImage === this.creativeOutpaintMask
+-        ? this.creativeOutpaintDenoise : this.denoise,
++      denoise: activeOutpaint ? this.creativeOutpaintDenoise : this.denoise,
+       differential_diffusion: this.differentialDiffusion,
+       input_image: this.inputImage,

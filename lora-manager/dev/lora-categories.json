@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.11.17",
+  "description": "Clean initial defaults. User classifications are stored separately in MooshieUI app data.",
+  "types": {}
+}

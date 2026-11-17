@@ -1,0 +1,760 @@
+diff --git a/src-tauri/src/templates/controlnet.rs b/src-tauri/src/templates/controlnet.rs
+index 425561e..e3a8cb4 100644
+--- a/src-tauri/src/templates/controlnet.rs
++++ b/src-tauri/src/templates/controlnet.rs
+@@ -312,6 +312,21 @@ pub fn build_preprocessor_preview_workflow(image: &str, preprocessor: &str) -> V
+         (preprocess_id, 0)
+     };
+ 
++    // The OpenPose preprocessor also returns the actual detected keypoints on
++    // output 1. PreviewAny exposes these as text in ComfyUI history, allowing
++    // creative-tools to load editable positions without guessing from pixels.
++    if preprocessor == "OpenposePreprocessor" {
++        let preview_id = next_id.to_string();
++        workflow.insert(
++            preview_id,
++            json!({
++                "class_type": "PreviewAny",
++                "inputs": { "source": [image_source.0.clone(), 1] }
++            }),
++        );
++        next_id += 1;
++    }
++
+     append_preprocessor_preview_save(&mut workflow, &mut next_id, &image_source);
+ 
+     Value::Object(workflow)
+diff --git a/src/App.svelte b/src/App.svelte
+index e421373..038585f 100644
+--- a/src/App.svelte
++++ b/src/App.svelte
+@@ -822,6 +822,18 @@
+   // The open page, shared by both layouts: the phone shell binds to it too, so
+   // every "go to Generate" below works there as well.
+   let currentPage = $state<PrimaryPage>("generate");
++  let creativeHandoff = $state<{ id: number; image: OutputImage; tool: "reference" | "outpaint" | "pose" | "postprocess"; kind?: "character" | "outfit" | "style" } | null>(null);
++  let creativeHandoffSequence = 0;
++  function sendToCreativeTools(
++    image: OutputImage,
++    tool: "reference" | "outpaint" | "pose" | "postprocess",
++    kind?: "character" | "outfit" | "style",
++  ) {
++    if (isVideoImage(image)) return;
++    gallery.closeLightbox();
++    creativeHandoff = { id: ++creativeHandoffSequence, image, tool, kind };
++    currentPage = "generate";
++  }
+   let generationDoneToast = $state<GenerationDoneToast | null>(null);
+ 
+   function openGenerationWorkspace(workspace: "image" | "video") {
+@@ -1333,6 +1345,25 @@
+         action: () => void setGalleryImageAsModelThumb(image, "loras", thumbLora),
+       });
+     }
++    if (!isVideoImage(image)) {
++      const referenceSlots: { kind: "character" | "outfit" | "style"; label: string }[] =
++        generation.modelFamily === "anima"
++          ? [{ kind: "style", label: "畫風" }]
++          : ["qwen_edit", "qwen_edit_plus"].includes(generation.modelFamily)
++            ? [{ kind: "character", label: "角色" }, { kind: "outfit", label: "服裝" }, { kind: "style", label: "畫風" }]
++            : ["sd15", "sdxl", "illustrious", "pony"].includes(generation.modelFamily)
++              ? [{ kind: "character", label: "角色" }, { kind: "style", label: "畫風" }]
++              : [];
++      items.push({ label: "", action: () => {}, separator: true });
++      for (const slot of referenceSlots) {
++        items.push({ label: `Creative Tools｜08 ${slot.label}參考`, action: () => sendToCreativeTools(image, "reference", slot.kind) });
++      }
++      items.push(
++        { label: "Creative Tools｜11 圖片向外延伸", action: () => sendToCreativeTools(image, "outpaint") },
++        { label: "Creative Tools｜22 姿勢控制", action: () => sendToCreativeTools(image, "pose") },
++        { label: "Creative Tools｜31 自動後製", action: () => sendToCreativeTools(image, "postprocess") },
++      );
++    }
+     items.push(
+       { label: "", action: () => {}, separator: true },
+       { label: locale.t("gallery.img2img"), action: () => img2imgImage(image) },
+@@ -4076,7 +4107,7 @@
+     {@render startupBanner(false)}
+     <div class="relative flex-1 overflow-hidden md:min-h-0 {currentPage === 'generate' ? '' : 'md:rounded-xl md:bg-neutral-950'}" inert={startup.locked}>
+     {#if currentPage === "generate"}
+-      <GenerationPage />
++      <GenerationPage {creativeHandoff} />
+     {:else if currentPage === "music"}
+       <MusicPage {userRole} />
+     {:else if currentPage === "model3d" && model3d.enabled}
+@@ -4084,7 +4115,7 @@
+     {:else if currentPage === "scene"}
+       <ScenePage onOpenSettings={() => (currentPage = "settings")} />
+     {:else if currentPage === "gallery"}
+-      <GalleryPage onSwitchToGenerate={() => (currentPage = "generate")} onMake3D={model3d.enabled ? (image) => { void model3d.useGalleryImage(image); currentPage = "model3d"; } : undefined} />
++      <GalleryPage onSwitchToGenerate={() => (currentPage = "generate")} onOpenContextMenu={openContextMenu} onMake3D={model3d.enabled ? (image) => { void model3d.useGalleryImage(image); currentPage = "model3d"; } : undefined} />
+     {:else if currentPage === "modelhub"}
+       <ModelHubPage />
+     {:else if currentPage === "artists"}
+diff --git a/src/lib/components/gallery/GalleryPage.svelte b/src/lib/components/gallery/GalleryPage.svelte
+index 82083cf..3e02f70 100644
+--- a/src/lib/components/gallery/GalleryPage.svelte
++++ b/src/lib/components/gallery/GalleryPage.svelte
+@@ -24,11 +24,13 @@
+ 
+   interface Props {
+     onSwitchToGenerate?: () => void;
++    /** Open historical image actions using the app's existing context menu. */
++    onOpenContextMenu?: (event: MouseEvent, image: OutputImage) => void;
+     /** Open the 3D page with this image as the source. */
+     onMake3D?: (image: OutputImage) => void;
+   }
+ 
+-  let { onSwitchToGenerate, onMake3D }: Props = $props();
++  let { onSwitchToGenerate, onOpenContextMenu, onMake3D }: Props = $props();
+ 
+   let newBoardName = $state("");
+   // Detailed view only: its rows vary in height, so it grows as you scroll
+@@ -1082,7 +1084,8 @@
+                 <div></div><div>{locale.t("gallery.col_preview")}</div><div>{locale.t("gallery.col_name")}</div><div>{locale.t("gallery.col_date")}</div><div>{locale.t("gallery.col_size")}</div><div>{locale.t("gallery.col_actions")}</div>
+               </div>
+               {#each group.images as image (image)}
+-                <div class="grid grid-cols-[28px_72px_1fr_150px_120px_420px] gap-2 px-3 py-2 items-center border-b border-neutral-900/80 last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_76px] {selection.has(image) ? 'bg-indigo-500/10' : ''} {cursor === image ? 'outline-2 -outline-offset-2 outline-white' : ''}" data-gallery-cursor={cursor === image ? "" : undefined}>
++                <div class="grid grid-cols-[28px_72px_1fr_150px_120px_420px] gap-2 px-3 py-2 items-center border-b border-neutral-900/80 last:border-b-0 [content-visibility:auto] [contain-intrinsic-size:auto_76px] {selection.has(image) ? 'bg-indigo-500/10' : ''} {cursor === image ? 'outline-2 -outline-offset-2 outline-white' : ''}" data-gallery-cursor={cursor === image ? "" : undefined}
++                  oncontextmenu={(event) => onOpenContextMenu?.(event, image)}> 
+                   {@render selectBox(image, true)}
+                   <button class="w-14 h-14 rounded border border-neutral-800 overflow-hidden" onclick={(e) => onTileClick(e, image)}>
+                     <img use:lazyThumbnail={{ image, size: thumbSize }} alt={image.filename} loading="lazy" decoding="async" class="w-full h-full object-cover {gallery.shouldBlur(image) ? 'blur-md scale-110' : ''}" />
+@@ -1179,7 +1182,9 @@
+                 {:else}
+                   <div class="grid" style="grid-template-columns: repeat({gridColumns}, minmax(0, 1fr)); gap: {GRID_GAP}px; height: {tileHeight}px; margin-bottom: {GRID_GAP}px;">
+                     {#each row.images as image (image)}
+-                    <div role="presentation" ondragstart={(e) => onTileDragStart(e, image)} ondragend={onTileDragEnd} class="group relative h-full rounded-lg overflow-hidden border transition-colors {selection.has(image) ? 'border-indigo-400 ring-2 ring-indigo-500' : 'border-neutral-800 hover:border-indigo-500'} {cursor === image ? 'outline-2 outline-offset-2 outline-white' : ''}">
++                    <div role="presentation" ondragstart={(e) => onTileDragStart(e, image)} ondragend={onTileDragEnd}
++                      oncontextmenu={(event) => onOpenContextMenu?.(event, image)}
++                      class="group relative h-full rounded-lg overflow-hidden border transition-colors {selection.has(image) ? 'border-indigo-400 ring-2 ring-indigo-500' : 'border-neutral-800 hover:border-indigo-500'} {cursor === image ? 'outline-2 outline-offset-2 outline-white' : ''}">
+                       <button
+                         class="w-full h-full"
+                         title={isVideoImage(image) ? locale.t("gallery.play_video") : image.filename}
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+index ae7dbfe..de3f41b 100644
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+-  import { generation } from "../../stores/generation.svelte.js";
++  import { generation, EDIT_REFERENCE_SLOTS } from "../../stores/generation.svelte.js";
++  import { models } from "../../stores/models.svelte.js";
+   import { compare } from "../../stores/compare.svelte.js";
+   import { locale } from "../../stores/locale.svelte.js";
+   import { scrollCapture } from "../../utils/scrollCapture.js";
+@@ -31,10 +32,18 @@
+   import CanvasEditor from "../canvas/CanvasEditor.svelte";
+   import LayerPanel from "../canvas/layers/LayerPanel.svelte";
+   import { canvas } from "../../stores/canvas.svelte.js";
+-  import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe } from "../../utils/api.js";
+-  import { uploadOutputImageForGenerationInput } from "../../utils/galleryActions.js";
++  import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe, checkNodeAvailable, generateControlnetPreprocessorPreview, getHistory } from "../../utils/api.js";
++  import { checkStyleTransferNodesReady } from "../../utils/styleTransferNodes.js";
++  import { imageUrlToPngBytes, loadOutputImageForGenerationInput, uploadOutputImageForGenerationInput } from "../../utils/galleryActions.js";
++  import { prepareOutpaint, type OutpaintDirection, type OutpaintAmountUnit } from "../../utils/creativeOutpaint.js";
++  import { getPresetModel } from "../../config/controlnet-presets.js";
++  import {
++    planReferenceHandoff, REFERENCE_KINDS, REFERENCE_LABELS,
++    type ReferenceKind, type ReferenceSettings,
++  } from "../../utils/creativeReference.js";
+   import {
+     normalizeGenerationInputBytes,
++    MAX_INPUT_PIXELS_INPAINT,
+     prepareOutputImageForEditMode,
+     type NormalizedInputImage,
+   } from "../../utils/editImagePreparation.js";
+@@ -44,6 +53,8 @@
+   import type { OutputImage, InterrogationResult } from "../../types/index.js";
+   import { onMount, onDestroy, tick, untrack } from "svelte";
+   import BottomPanel from "./BottomPanel.svelte";
++  import CreativeToolsPanel from "./CreativeToolsPanel.svelte";
++  type CreativeTool = "reference" | "outpaint" | "pose" | "postprocess";
+   import ContextMenu from "../ui/ContextMenu.svelte";
+   import type { ContextMenuItem } from "../ui/ContextMenu.svelte";
+   import InterrogateModal from "./InterrogateModal.svelte";
+@@ -63,10 +74,432 @@
+ 
+   interface Props {
+     mobileFriendly?: boolean;
++    creativeHandoff?: { id: number; image: OutputImage; tool: CreativeTool; kind?: ReferenceKind } | null;
+   }
+-  let { mobileFriendly = false }: Props = $props();
++  let { mobileFriendly = false, creativeHandoff = null }: Props = $props();
+ 
+   const storageSuffix = mobileFriendly ? ".mobile" : ".desktop";
++  let creativeToolsOpen = $state(false);
++  let creativeTool = $state<CreativeTool>("outpaint");
++  let creativeSource = $state<OutputImage | null>(null);
++  let creativeLocalUrl = $state<string | null>(null);
++  let creativeLocalBytes = $state.raw<number[] | null>(null);
++  let creativeOutpaintBytes = $state.raw<number[] | null>(null);
++  let creativeSourceSize = $state<{ width: number; height: number } | null>(null);
++  let creativeSourceLoading = $state(false);
++  let creativeRequestId = 0;
++  let creativeBusy = $state(false);
++  let creativeError = $state<string | null>(null);
++
++  interface CreativeReferenceEntry {
++    name: string;
++    previewUrl: string;
++    blob: Blob;
++    width: number;
++    height: number;
++  }
++  let creativeReferences = $state<Record<ReferenceKind, CreativeReferenceEntry | null>>({
++    character: null, outfit: null, style: null,
++  });
++  let creativeReferenceUploading = $state<ReferenceKind | null>(null);
++  let creativeReferencePickTarget = $state<ReferenceKind>("character");
++  const creativeReferenceEpoch: Record<ReferenceKind, number> = { character: 0, outfit: 0, style: 0 };
++  let lastCreativeReferencePrompt = "";
++
++  function clearCreativeReference(kind: ReferenceKind) {
++    ++creativeReferenceEpoch[kind];
++    const old = creativeReferences[kind];
++    if (old) URL.revokeObjectURL(old.previewUrl);
++    creativeReferences[kind] = null;
++    if (creativeReferenceUploading === kind) creativeReferenceUploading = null;
++  }
++
++  function copyCreativeReference(from: ReferenceKind, to: ReferenceKind) {
++    const source = creativeReferences[from];
++    if (!source || from === to || creativeBusy || creativeReferenceUploading) return;
++    clearCreativeReference(to);
++    creativeReferences[to] = {
++      ...source, previewUrl: URL.createObjectURL(source.blob),
++    };
++    creativeError = null;
++  }
++
++  async function loadCreativeReference(kind: ReferenceKind, loadBytes: () => Promise<number[]>) {
++    if (creativeBusy || creativeReferenceUploading) return;
++    const epoch = ++creativeReferenceEpoch[kind];
++    creativeReferenceUploading = kind;
++    creativeError = null;
++    let previewUrl: string | null = null;
++    try {
++      const bytes = await loadBytes();
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const normalized = await normalizeGenerationInputBytes(
++        bytes, `creative_reference_${kind}.png`,
++      );
++      previewUrl = normalized.previewUrl;
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const uploaded = await uploadImageBytes(
++        normalized.bytes, `creative_reference_${kind}_${Date.now()}.png`,
++      );
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const old = creativeReferences[kind];
++      if (old) URL.revokeObjectURL(old.previewUrl);
++      creativeReferences[kind] = {
++        name: uploaded.name, blob: normalized.previewBlob,
++        previewUrl: normalized.previewUrl,
++        width: normalized.width, height: normalized.height,
++      };
++      previewUrl = null; // Adopted by creativeReferences.
++    } catch (e) {
++      if (epoch === creativeReferenceEpoch[kind]) {
++        creativeError = e instanceof Error ? e.message : String(e);
++      }
++    } finally {
++      if (previewUrl) URL.revokeObjectURL(previewUrl);
++      if (epoch === creativeReferenceEpoch[kind]) creativeReferenceUploading = null;
++    }
++  }
++
++  function pickCreativeReference(kind: ReferenceKind) {
++    creativeReferencePickTarget = kind;
++    creativeTool = "reference";
++    creativeToolsOpen = true;
++    if (bottomCollapsed) bottomCollapsed = false;
++    gallery.showToast(`請在下方圖庫對圖片按右鍵，選擇送到 08「${REFERENCE_LABELS[kind]}」`, "success");
++  }
++
++  function selectCreativeReference(image: OutputImage, kind: ReferenceKind = creativeReferencePickTarget) {
++    creativeReferencePickTarget = kind;
++    creativeTool = "reference";
++    creativeToolsOpen = true;
++    void loadCreativeReference(kind, async () =>
++      (await loadOutputImageForGenerationInput(image, `creative_reference_${kind}.png`)).bytes,
++    );
++  }
++
++  function creativeReferenceLocal(kind: ReferenceKind, file: File) {
++    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
++      creativeError = "參考圖僅接受 PNG、JPEG 或 WebP";
++      return;
++    }
++    void loadCreativeReference(kind, async () => {
++      // Decode every accepted format to actual PNG bytes before uploading under a .png name.
++      const objectUrl = URL.createObjectURL(file);
++      try {
++        return await imageUrlToPngBytes(objectUrl);
++      } finally {
++        URL.revokeObjectURL(objectUrl);
++      }
++    });
++  }
++
++  async function creativeToReference(settings: ReferenceSettings) {
++    if (creativeBusy || creativeReferenceUploading) return;
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型";
++      return;
++    }
++    const names = {
++      character: creativeReferences.character?.name ?? null,
++      outfit: creativeReferences.outfit?.name ?? null,
++      style: creativeReferences.style?.name ?? null,
++    };
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const plan = planReferenceHandoff(generation.modelFamily, names, settings);
++      const primary = creativeReferences[plan.ordered[0]];
++      if (!primary) throw new Error("參考圖片未載入");
++      if (plan.route === "qwen_edit") {
++        const previousMode = generation.mode;
++        const previousModePrompt = generation.positivePrompt;
++        generation.mode = "image_edit";
++        await tick();
++        const next = Array<string | null>(EDIT_REFERENCE_SLOTS).fill(null);
++        plan.ordered.forEach((kind, index) => {
++          next[index] = creativeReferences[kind]!.name;
++        });
++        generation.editReferenceImages = next;
++        generation.width = Math.max(16, Math.round(primary.width / 16) * 16);
++        generation.height = Math.max(16, Math.round(primary.height / 16) * 16);
++        // Update only a preamble previously applied by this tool, not arbitrary prompt text.
++        const previous = lastCreativeReferencePrompt;
++        const current = generation.positivePrompt || (previousMode !== "image_edit" ? previousModePrompt : "");
++        const userPrompt = previous && current.startsWith(previous + "\n")
++          ? current.slice(previous.length + 1)
++          : current === previous ? "" : current;
++        generation.positivePrompt = [plan.instructions, userPrompt].filter(Boolean).join("\n");
++        lastCreativeReferencePrompt = plan.instructions;
++      } else if (plan.route === "anima_style") {
++        if (!(await checkStyleTransferNodesReady())) {
++          throw new Error("Anima 風格轉換需要 Untwisting RoPE 與 ImageScaleToTotalPixelsX 節點，尚未確認可用");
++        }
++        generation.mode = "txt2img";
++        await tick();
++        generation.styleReferenceImage = primary.name;
++        generation.styleTransferLowScaleEnd = 1 + settings.style.strength / 200;
++        generation.styleTransferEnabled = true;
++        generation.styleRefEnabled = false;
++        generation.controlnetEnabled = false;
++        generation.upscaleEnabled = false;
++        generation.facefixEnabled = false;
++        if (!["euler_ancestral", "euler_a"].includes(generation.samplerName)) {
++          generation.samplerName = "euler_ancestral";
++        }
++      } else {
++        if (plan.route === "anima_character" &&
++          !(await checkNodeAvailable("AnimaRefAdapter"))) {
++          throw new Error("尚未偵測到 AnimaRefAdapter 節點；請先確認原生 Anima 角色參考依賴");
++        }
++        if (plan.route === "anima_character" &&
++          !models.loras.some(name => name.endsWith("anima_ref_adapter_v2_r64.safetensors"))) {
++          throw new Error("尚未找到 Anima Reference Adapter v2 LoRA；請先在原生風格參考區安裝，然後重試");
++        }
++        if (plan.route === "sdxl_adapter" &&
++          !(await checkNodeAvailable("IPAdapterUnifiedLoader"))) {
++          throw new Error("尚未偵測到 IPAdapterUnifiedLoader；請先於原生風格參考區安裝 IP-Adapter Plus");
++        }
++        generation.mode = "txt2img";
++        await tick();
++        generation.styleRefImage = primary.name;
++        generation.styleRefImage2 = null;
++        generation.styleRefEnabled = true;
++        if (plan.route === "anima_character") generation.styleTransferEnabled = false;
++        if (plan.route === "anima_character") {
++          generation.animaRefGuidance = 1 + settings.character.strength * 0.09;
++        } else {
++          generation.styleRefStrength = plan.nativeStrength ?? 0.6;
++          generation.styleRefWeightType = plan.ordered[0] === "style" ? "style transfer" : "linear";
++        }
++      }
++      generation.saveSettings();
++      creativeToolsOpen = false;
++      gallery.showToast("08 參考圖片已帶入原生流程；確認設定後按「生成」。", "success");
++    } catch (e) {
++      creativeError = e instanceof Error ? e.message : String(e);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function readCreativeSourceSize(image: OutputImage | null, localBytes: number[] | null) {
++    const requestId = ++creativeRequestId;
++    creativeSourceSize = null;
++    creativeOutpaintBytes = null;
++    creativeSourceLoading = true;
++    try {
++      const bytes = localBytes ?? (await loadOutputImageForGenerationInput(image!, "creative_outpaint_source.png")).bytes;
++      const normalized = await normalizeGenerationInputBytes(bytes, "creative_outpaint_source.png", MAX_INPUT_PIXELS_INPAINT);
++      // Outpainting and the dimensions preview must use identical normalized pixels.
++      // Large sources are capped by the existing inpaint limit (4MP), not img2img's 1MP.
++      URL.revokeObjectURL(normalized.previewUrl);
++      if (requestId !== creativeRequestId) return;
++      creativeOutpaintBytes = normalized.bytes;
++      creativeSourceSize = { width: normalized.width, height: normalized.height };
++    } catch (error) {
++      if (requestId === creativeRequestId) {
++        creativeError = error instanceof Error ? error.message : String(error);
++      }
++    } finally {
++      if (requestId === creativeRequestId) creativeSourceLoading = false;
++    }
++  }
++
++  function selectCreativeSource(image: OutputImage, tool: CreativeTool) {
++    if (creativeLocalUrl) URL.revokeObjectURL(creativeLocalUrl);
++    creativeLocalUrl = null;
++    creativeLocalBytes = null;
++    creativeSource = image;
++    creativeTool = tool;
++    creativeError = null;
++    creativeToolsOpen = true;
++    void readCreativeSourceSize(image, null);
++  }
++  let lastCreativeHandoffId = 0;
++  $effect(() => {
++    const request = creativeHandoff;
++    if (!request || request.id === lastCreativeHandoffId) return;
++    lastCreativeHandoffId = request.id;
++    if (request.tool === "reference") {
++      selectCreativeReference(request.image, request.kind ?? (generation.modelFamily === "anima" ? "style" : "character"));
++    } else {
++      selectCreativeSource(request.image, request.tool);
++    }
++  });
++  async function creativeSelectLocal(file: File) {
++    if (creativeBusy) return;
++    creativeBusy = true;
++    creativeError = null;
++    const localUrl = URL.createObjectURL(file);
++    try {
++      const bytes = await imageUrlToPngBytes(localUrl);
++      if (creativeLocalUrl) URL.revokeObjectURL(creativeLocalUrl);
++      creativeLocalUrl = localUrl;
++      creativeLocalBytes = bytes;
++      creativeSource = null;
++      void readCreativeSourceSize(null, bytes);
++    } catch (error) {
++      URL.revokeObjectURL(localUrl);
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++  async function creativeToOutpaint(direction: OutpaintDirection, amount: number, unit: OutpaintAmountUnit, denoise: number) {
++    if ((!creativeSource && !creativeLocalBytes) || creativeBusy || creativeSourceLoading) return;
++    if (!creativeOutpaintBytes || !creativeSourceSize) {
++      creativeError = "尚未取得來源圖片尺寸，無法計算延伸範圍";
++      return;
++    }
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型；NovelAI 模式目前不支援此工具。";
++      return;
++    }
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const prepared = await prepareOutpaint(creativeOutpaintBytes, direction, amount, unit);
++      const unique = Date.now();
++      const input = await uploadImageBytes(prepared.imageBytes, `creative_outpaint_${unique}.png`);
++      const mask = await uploadImageBytes(prepared.maskBytes, `creative_outpaint_mask_${unique}.png`);
++      const normalized = await normalizeGenerationInputBytes(prepared.imageBytes, input.name, prepared.imageWidth * prepared.imageHeight);
++      canvas.clearStaging();
++      canvas.clearInpaintSession();
++      // Finish the inpaint-mode transition before installing the prepared mask:
++      // otherwise the canvas initialization can clear generation.maskImage.
++      generation.mode = "inpainting";
++      await tick();
++      canvas.isCanvasMode = false;
++      generation.width = prepared.imageWidth;
++      generation.height = prepared.imageHeight;
++      applyNormalizedImagePreview(normalized);
++      generation.inputImage = input.name;
++      generation.maskImage = mask.name;
++      // Apply the strength only while this exact Creative Tools mask is active.
++      generation.creativeOutpaintMask = mask.name;
++      generation.creativeOutpaintDenoise = denoise;
++      if (maskPreviewUrl) URL.revokeObjectURL(maskPreviewUrl);
++      maskPreviewUrl = URL.createObjectURL(new Blob([new Uint8Array(prepared.maskBytes)], { type: "image/png" }));
++      canvas.setPersistedMaskPreview(maskPreviewUrl);
++      creativeToolsOpen = false;
++      gallery.showToast("擴圖畫布與遮罩已載入。確認提示詞後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++  async function creativeDetectPose(): Promise<string> {
++    if ((!creativeSource && !creativeLocalBytes) || creativeSourceLoading || !creativeOutpaintBytes) {
++      throw new Error("請先選擇照片並等待載入完成");
++    }
++    if (creativeBusy) throw new Error("目前有其他 creative-tools 操作正在執行");
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const nodes = await Promise.all([
++        checkNodeAvailable("OpenposePreprocessor", ["image"]),
++        checkNodeAvailable("PreviewAny", ["source"]),
++      ]);
++      if (!nodes.every(Boolean)) {
++        throw new Error("缺少 OpenposePreprocessor 或 PreviewAny 節點，無法取得實際關節座標");
++      }
++      const uploaded = await uploadImageBytes(creativeOutpaintBytes, `creative_pose_photo_${Date.now()}.png`);
++      const { prompt_id } = await generateControlnetPreprocessorPreview(uploaded.name, "OpenposePreprocessor");
++      for (let attempt = 0; attempt < 120; attempt++) {
++        await new Promise<void>(resolve => setTimeout(resolve, 1000));
++        const history = await getHistory(prompt_id);
++        const result = history[prompt_id] as {
++          status?: { status_str?: string };
++          outputs?: Record<string, { text?: unknown }>;
++        } | undefined;
++        if (!result) continue;
++        if (result.status?.status_str === "error") {
++          throw new Error("ComfyUI OpenPose 辨識失敗，請檢查 ComfyUI 錯誤訊息");
++        }
++        for (const output of Object.values(result.outputs ?? {})) {
++          if (!Array.isArray(output?.text)) continue;
++          const text = output.text.find((item): item is string => typeof item === "string");
++          if (text) return text;
++        }
++        throw new Error("OpenPose 工作已完成，但未取得可編輯的關節資料");
++      }
++      throw new Error("等待照片關節辨識逾時，請確認 ComfyUI 執行狀態");
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function creativeToPose(bytes: number[]): Promise<void> {
++    if (creativeBusy) return;
++    creativeError = null;
++    const family = generation.modelFamily;
++    if (generation.isNovelAi || !generation.checkpoint ||
++        !["illustrious", "sdxl", "pony", "kolors", "sd15"].includes(family)) {
++      creativeError = "目前選擇的模型不支援已確認的原生 OpenPose ControlNet 路徑";
++      return;
++    }
++    const entry = getPresetModel("openpose", family);
++    if (!entry || !models.controlnetModels.includes(entry.filename)) {
++      creativeError = `未安裝相容的姿勢控制權重：${entry?.filename ?? "未知"}`;
++      return;
++    }
++    creativeBusy = true;
++    try {
++      const nodes = await Promise.all([
++        checkNodeAvailable("ControlNetLoader"),
++        checkNodeAvailable("ControlNetApplyAdvanced"),
++      ]);
++      if (!nodes.every(Boolean)) throw new Error("缺少原生 ControlNet 核心節點");
++      const uploaded = await uploadImageBytes(bytes, `creative_pose_${Date.now()}.png`);
++      generation.mode = "txt2img";
++      await tick();
++      generation.controlnetMode = "custom";
++      generation.controlnetPreset = null;
++      generation.controlnetModel = entry.filename;
++      generation.controlnetPreprocessor = null; // Skeleton pixels are already OpenPose output.
++      generation.controlnetImage = uploaded.name;
++      generation.controlnetEnabled = true;
++      generation.styleTransferEnabled = false;
++      generation.saveSettings();
++      creativeToolsOpen = false;
++      gallery.showToast("22 骨架圖片已交給原生 ControlNet。確認設定後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function creativeToPostprocess(facefix: boolean, upscale: boolean) {
++    if ((!creativeSource && !creativeLocalBytes) || creativeBusy) return;
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型；NovelAI 模式目前不支援此工具。";
++      return;
++    }
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const input = creativeLocalBytes
++        ? (await uploadImageBytes(creativeLocalBytes, `creative_postprocess_${Date.now()}.png`)).name
++        : await uploadOutputImageForGenerationInput(creativeSource!, "creative_postprocess.png");
++      generation.inputImage = input;
++      generation.mode = "img2img";
++      generation.upscaleEnabled = upscale;
++      generation.facefixEnabled = facefix;
++      creativeToolsOpen = false;
++      await revealImageInputSection();
++      gallery.showToast("已載入後製參數，確認模型與設定後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++  function revealCreativeGallery() {
++    if (bottomCollapsed) bottomCollapsed = false;
++    gallery.showToast("在圖庫圖片上按右鍵，選擇送到 creative-tools", "success");
++  }
+   const DIMENSIONS_LAYOUT_KEY = `mooshieui.generation.dimensions.layout.v1${storageSuffix}`;
+   const SECTION_LAYOUT_KEY = `mooshieui.generation.sections.layout.v1${storageSuffix}`;
+ 
+@@ -83,6 +516,7 @@
+     | "novelai"
+     | "naiFaceDetail"
+     | "controlnet"
++    | "creativeTools"
+     | "styleTransfer"
+     | "styleRef"
+     | "facefix"
+@@ -135,6 +569,7 @@
+     novelai: "right",
+     naiFaceDetail: "right",
+     controlnet: "right",
++    creativeTools: "right",
+     styleTransfer: "right",
+     styleRef: "right",
+     facefix: "right",
+@@ -169,6 +604,7 @@
+     "novelai",
+     "naiFaceDetail",
+     "controlnet",
++    "creativeTools",
+     "styleTransfer",
+     "styleRef",
+     "facefix",
+@@ -372,6 +808,7 @@
+     if (section === "novelai") return locale.t('generation.novelai.title');
+     if (section === "naiFaceDetail") return locale.t('generation.nai_face_detail.title');
+     if (section === "controlnet") return locale.t('generation.controlnet.title');
++    if (section === "creativeTools") return "creative-tools";
+     if (section === "facefix") return locale.t('generation.facefix.title');
+     if (section === "styleTransfer") return locale.t('generation.style_transfer.title');
+     if (section === "styleRef") return locale.t('generation.style_ref.title');
+@@ -445,6 +882,7 @@
+   let samplerSectionOpen = $state(savedCollapse.sampler !== false);
+   let novelaiSectionOpen = $state(savedCollapse.novelai !== false);
+   let controlnetSectionOpen = $state(savedCollapse.controlnet !== false);
++  let creativeSectionOpen = $state(savedCollapse.creativeTools !== false);
+   let styleTransferSectionOpen = $state(savedCollapse.styleTransfer !== false);
+   let styleRefSectionOpen = $state(savedCollapse.styleRef !== false);
+   let naiFaceDetailSectionOpen = $state(savedCollapse.naiFaceDetail !== false);
+@@ -464,6 +902,7 @@
+       sampler: samplerSectionOpen,
+       novelai: novelaiSectionOpen,
+       controlnet: controlnetSectionOpen,
++      creativeTools: creativeSectionOpen,
+       styleTransfer: styleTransferSectionOpen,
+       styleRef: styleRefSectionOpen,
+       naiFaceDetail: naiFaceDetailSectionOpen,
+@@ -830,6 +1269,10 @@
+       { label: "", action: () => {}, separator: true },
+       { label: locale.t('generation.ctx.upscale'), action: () => upscaleImage(image) },
+       { label: locale.t('generation.ctx.inpaint'), action: () => inpaintImage(image) },
++      { label: "送到 creative-tools｜08 參考圖", action: () => selectCreativeReference(image) },
++      { label: "送到 creative-tools｜向外延伸", action: () => selectCreativeSource(image, "outpaint") },
++      { label: "送到 creative-tools｜姿勢參考", action: () => selectCreativeSource(image, "pose") },
++      { label: "送到 creative-tools｜後製", action: () => selectCreativeSource(image, "postprocess") },
+       // NovelAI only, and only with a key: the entry is hidden rather than
+       // disabled, because there is nothing the user can do about it from here.
+       ...(directorToolsAvailable()
+@@ -1753,6 +2196,7 @@
+               aria-selected={generation.mode === mode.id}
+               onclick={() => {
+                 generation.mode = mode.id;
++                creativeToolsOpen = false;
+                 if (mode.id !== "inpainting") canvas.isCanvasMode = false;
+               }}
+               class="h-8 px-3.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors {generation.mode === mode.id
+@@ -2310,6 +2754,29 @@
+     </div>
+   {/snippet}
+ 
++  {#snippet creativeToolsSection()}
++    <div bind:this={sectionRefs['creativeTools']} class="relative rounded-xl border border-neutral-800 bg-[color-mix(in_srgb,var(--color-neutral-900)_60%,var(--color-neutral-950))] transition-[height,opacity] duration-150 {draggingSection === 'creativeTools' ? 'h-0 overflow-hidden opacity-0 m-0! p-0! border-0!' : 'opacity-100'}">
++      {@render sectionHeader("creativeTools", creativeSectionOpen, () => (creativeSectionOpen = !creativeSectionOpen))}
++      {#if creativeSectionOpen}
++        <div class="grid gap-1.5 px-3 pb-3 pt-0.5">
++          {#each [
++            { id: "reference", label: "08｜角色／服裝／風格參考" },
++            { id: "outpaint", label: "11｜圖片向外延伸" },
++            { id: "pose", label: "22｜姿勢控制" },
++            { id: "postprocess", label: "31｜自動後製" },
++          ] as tool (tool.id)}
++            <button
++              type="button"
++              class="w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors {creativeToolsOpen && creativeTool === tool.id ? 'border-indigo-400 bg-indigo-600/20 text-indigo-100' : 'border-neutral-700 bg-neutral-800/60 text-neutral-300 hover:border-indigo-500 hover:text-white'}"
++              onclick={() => { creativeTool = tool.id as CreativeTool; creativeToolsOpen = true; }}
++            >{tool.label}</button>
++          {/each}
++          <p class="pt-1 text-[11px] leading-relaxed text-neutral-500">選擇功能後於中央工作區操作；拖曳上方標題可移動此區塊。</p>
++        </div>
++      {/if}
++    </div>
++  {/snippet}
++
+   {#snippet renderSection(section: SectionId)}
+     {#if section === "dimensions"}
+       {@render dimensionsSection()}
+@@ -2335,6 +2802,8 @@
+       {@render naiFaceDetailSection()}
+     {:else if section === "controlnet"}
+       {@render controlnetSection()}
++    {:else if section === "creativeTools"}
++      {@render creativeToolsSection()}
+     {:else if section === "styleTransfer"}
+       {@render styleTransferSection()}
+     {:else if section === "styleRef"}
+@@ -2395,6 +2864,7 @@
+                   aria-selected={generation.mode === mode.id}
+                   onclick={() => {
+                     generation.mode = mode.id;
++                    creativeToolsOpen = false;
+                     if (mode.id !== "inpainting") canvas.isCanvasMode = false;
+                   }}
+                   class="h-9 min-w-0 flex-1 truncate rounded-lg px-1.5 text-xs font-medium transition-colors {generation.mode === mode.id
+@@ -2513,7 +2983,11 @@
+     {#if !mobileFriendly}
+       {@render previewTopBar()}
+     {/if}
+-    {#if canvas.isCanvasMode}
++    {#if creativeToolsOpen && generation.mode !== "video"}
++      <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
++        <CreativeToolsPanel selected={creativeTool} hasImage={creativeSource !== null || creativeLocalBytes !== null} sourceSize={creativeSourceSize} sourceLoading={creativeSourceLoading} modelName={generation.checkpoint || ""} modelFamily={generation.modelFamily} localBackend={!generation.isNovelAi} sourceUrl={creativeLocalUrl || creativeSource?.thumbnailUrl || creativeSource?.url || null} busy={creativeBusy} error={creativeError} referenceImages={creativeReferences} referenceUploading={creativeReferenceUploading} referencePickTarget={creativeReferencePickTarget} onReferencePick={pickCreativeReference} onReferenceLocal={creativeReferenceLocal} onReferenceCopy={copyCreativeReference} onReferenceClear={clearCreativeReference} onReferenceApply={creativeToReference} onSelect={(tool) => { creativeTool = tool; creativeError = null; }} onPickImage={revealCreativeGallery} onLocalImage={creativeSelectLocal} onOutpaint={creativeToOutpaint} onNativeUpscale={creativeToPostprocess} poseWidth={generation.width} poseHeight={generation.height} onPoseApply={creativeToPose} onPoseDetect={creativeDetectPose} onClose={() => creativeToolsOpen = false} />
++      </div>
++    {:else if canvas.isCanvasMode}
+       <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+         <CanvasEditor bind:this={canvasEditorRef} />
+       </div>
+diff --git a/src/lib/stores/generation.svelte.ts b/src/lib/stores/generation.svelte.ts
+index b19eb97..e54e2ac 100644
+--- a/src/lib/stores/generation.svelte.ts
++++ b/src/lib/stores/generation.svelte.ts
+@@ -817,6 +817,9 @@ class GenerationStore {
+   denoise = $state(0.7);
+   inputImage = $state<string | null>(null);
+   maskImage = $state<string | null>(null);
++  /** In-memory, mask-specific outpaint override; regular inpainting keeps its own denoise. */
++  creativeOutpaintMask = $state<string | null>(null);
++  creativeOutpaintDenoise = $state(1);
+   growMaskBy = $state(6);
+   differentialDiffusion = $state(false);
+   upscaleEnabled = $state(false);
+@@ -4327,7 +4330,8 @@ class GenerationStore {
+       width: this.width,
+       height: this.height,
+       batch_size: this.batchSize,
+-      denoise: this.denoise,
++      denoise: this.mode === "inpainting" && this.maskImage && this.maskImage === this.creativeOutpaintMask
++        ? this.creativeOutpaintDenoise : this.denoise,
+       differential_diffusion: this.differentialDiffusion,
+       input_image: this.inputImage,
+       mask_image: this.maskImage,

@@ -1,0 +1,251 @@
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+index ebcf0cf..4e0868d 100644
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+-  import { generation } from "../../stores/generation.svelte.js";
++  import { generation, EDIT_REFERENCE_SLOTS } from "../../stores/generation.svelte.js";
++  import { models } from "../../stores/models.svelte.js";
+   import { compare } from "../../stores/compare.svelte.js";
+   import { locale } from "../../stores/locale.svelte.js";
+   import { scrollCapture } from "../../utils/scrollCapture.js";
+@@ -29,9 +30,14 @@
+   import CanvasEditor from "../canvas/CanvasEditor.svelte";
+   import LayerPanel from "../canvas/layers/LayerPanel.svelte";
+   import { canvas } from "../../stores/canvas.svelte.js";
+-  import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe } from "../../utils/api.js";
++  import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe, checkNodeAvailable } from "../../utils/api.js";
++  import { checkStyleTransferNodesReady } from "../../utils/styleTransferNodes.js";
+   import { imageUrlToPngBytes, loadOutputImageForGenerationInput, uploadOutputImageForGenerationInput } from "../../utils/galleryActions.js";
+   import { prepareOutpaint, type OutpaintDirection, type OutpaintAmountUnit } from "../../utils/creativeOutpaint.js";
++  import {
++    planReferenceHandoff, REFERENCE_KINDS, REFERENCE_LABELS,
++    type ReferenceKind, type ReferenceSettings,
++  } from "../../utils/creativeReference.js";
+   import {
+     normalizeGenerationInputBytes,
+     MAX_INPUT_PIXELS_INPAINT,
+@@ -81,6 +87,197 @@
+   let creativeBusy = $state(false);
+   let creativeError = $state<string | null>(null);
+ 
++  interface CreativeReferenceEntry {
++    name: string;
++    previewUrl: string;
++    blob: Blob;
++    width: number;
++    height: number;
++  }
++  let creativeReferences = $state<Record<ReferenceKind, CreativeReferenceEntry | null>>({
++    character: null, outfit: null, style: null,
++  });
++  let creativeReferenceUploading = $state<ReferenceKind | null>(null);
++  let creativeReferencePickTarget = $state<ReferenceKind>("character");
++  const creativeReferenceEpoch: Record<ReferenceKind, number> = { character: 0, outfit: 0, style: 0 };
++  let lastCreativeReferencePrompt = "";
++
++  function clearCreativeReference(kind: ReferenceKind) {
++    ++creativeReferenceEpoch[kind];
++    const old = creativeReferences[kind];
++    if (old) URL.revokeObjectURL(old.previewUrl);
++    creativeReferences[kind] = null;
++    if (creativeReferenceUploading === kind) creativeReferenceUploading = null;
++  }
++
++  function copyCreativeReference(from: ReferenceKind, to: ReferenceKind) {
++    const source = creativeReferences[from];
++    if (!source || from === to || creativeBusy || creativeReferenceUploading) return;
++    clearCreativeReference(to);
++    creativeReferences[to] = {
++      ...source, previewUrl: URL.createObjectURL(source.blob),
++    };
++    creativeError = null;
++  }
++
++  async function loadCreativeReference(kind: ReferenceKind, loadBytes: () => Promise<number[]>) {
++    if (creativeBusy || creativeReferenceUploading) return;
++    const epoch = ++creativeReferenceEpoch[kind];
++    creativeReferenceUploading = kind;
++    creativeError = null;
++    let previewUrl: string | null = null;
++    try {
++      const bytes = await loadBytes();
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const normalized = await normalizeGenerationInputBytes(
++        bytes, `creative_reference_${kind}.png`,
++      );
++      previewUrl = normalized.previewUrl;
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const uploaded = await uploadImageBytes(
++        normalized.bytes, `creative_reference_${kind}_${Date.now()}.png`,
++      );
++      if (epoch !== creativeReferenceEpoch[kind]) return;
++      const old = creativeReferences[kind];
++      if (old) URL.revokeObjectURL(old.previewUrl);
++      creativeReferences[kind] = {
++        name: uploaded.name, blob: normalized.previewBlob,
++        previewUrl: normalized.previewUrl,
++        width: normalized.width, height: normalized.height,
++      };
++      previewUrl = null; // Adopted by creativeReferences.
++    } catch (e) {
++      if (epoch === creativeReferenceEpoch[kind]) {
++        creativeError = e instanceof Error ? e.message : String(e);
++      }
++    } finally {
++      if (previewUrl) URL.revokeObjectURL(previewUrl);
++      if (epoch === creativeReferenceEpoch[kind]) creativeReferenceUploading = null;
++    }
++  }
++
++  function pickCreativeReference(kind: ReferenceKind) {
++    creativeReferencePickTarget = kind;
++    creativeTool = "reference";
++    creativeToolsOpen = true;
++    if (bottomCollapsed) bottomCollapsed = false;
++    gallery.showToast(`請在下方圖庫對圖片按右鍵，選擇送到 08「${REFERENCE_LABELS[kind]}」`, "success");
++  }
++
++  function selectCreativeReference(image: OutputImage) {
++    creativeTool = "reference";
++    creativeToolsOpen = true;
++    const kind = creativeReferencePickTarget;
++    void loadCreativeReference(kind, async () =>
++      (await loadOutputImageForGenerationInput(image, `creative_reference_${kind}.png`)).bytes,
++    );
++  }
++
++  function creativeReferenceLocal(kind: ReferenceKind, file: File) {
++    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
++      creativeError = "參考圖僅接受 PNG、JPEG 或 WebP";
++      return;
++    }
++    void loadCreativeReference(kind, async () => {
++      // Decode every accepted format to actual PNG bytes before uploading under a .png name.
++      const objectUrl = URL.createObjectURL(file);
++      try {
++        return await imageUrlToPngBytes(objectUrl);
++      } finally {
++        URL.revokeObjectURL(objectUrl);
++      }
++    });
++  }
++
++  async function creativeToReference(settings: ReferenceSettings) {
++    if (creativeBusy || creativeReferenceUploading) return;
++    if (generation.isNovelAi || !generation.checkpoint) {
++      creativeError = "請先選擇本地 ComfyUI 模型";
++      return;
++    }
++    const names = {
++      character: creativeReferences.character?.name ?? null,
++      outfit: creativeReferences.outfit?.name ?? null,
++      style: creativeReferences.style?.name ?? null,
++    };
++    creativeBusy = true;
++    creativeError = null;
++    try {
++      const plan = planReferenceHandoff(generation.modelFamily, names, settings);
++      const primary = creativeReferences[plan.ordered[0]];
++      if (!primary) throw new Error("參考圖片未載入");
++      if (plan.route === "qwen_edit") {
++        const previousMode = generation.mode;
++        const previousModePrompt = generation.positivePrompt;
++        generation.mode = "image_edit";
++        await tick();
++        const next = Array<string | null>(EDIT_REFERENCE_SLOTS).fill(null);
++        plan.ordered.forEach((kind, index) => {
++          next[index] = creativeReferences[kind]!.name;
++        });
++        generation.editReferenceImages = next;
++        generation.width = Math.max(16, Math.round(primary.width / 16) * 16);
++        generation.height = Math.max(16, Math.round(primary.height / 16) * 16);
++        // Update only a preamble previously applied by this tool, not arbitrary prompt text.
++        const previous = lastCreativeReferencePrompt;
++        const current = generation.positivePrompt || (previousMode !== "image_edit" ? previousModePrompt : "");
++        const userPrompt = previous && current.startsWith(previous + "\n")
++          ? current.slice(previous.length + 1)
++          : current === previous ? "" : current;
++        generation.positivePrompt = [plan.instructions, userPrompt].filter(Boolean).join("\n");
++        lastCreativeReferencePrompt = plan.instructions;
++      } else if (plan.route === "anima_style") {
++        if (!(await checkStyleTransferNodesReady())) {
++          throw new Error("Anima 風格轉換需要 Untwisting RoPE 與 ImageScaleToTotalPixelsX 節點，尚未確認可用");
++        }
++        generation.mode = "txt2img";
++        await tick();
++        generation.styleReferenceImage = primary.name;
++        generation.styleTransferLowScaleEnd = 1 + settings.style.strength / 200;
++        generation.styleTransferEnabled = true;
++        generation.styleRefEnabled = false;
++        generation.controlnetEnabled = false;
++        generation.upscaleEnabled = false;
++        generation.facefixEnabled = false;
++        if (!["euler_ancestral", "euler_a"].includes(generation.samplerName)) {
++          generation.samplerName = "euler_ancestral";
++        }
++      } else {
++        if (plan.route === "anima_character" &&
++          !(await checkNodeAvailable("AnimaRefAdapter"))) {
++          throw new Error("尚未偵測到 AnimaRefAdapter 節點；請先確認原生 Anima 角色參考依賴");
++        }
++        if (plan.route === "anima_character" &&
++          !models.loras.some(name => name.endsWith("anima_ref_adapter_v2_r64.safetensors"))) {
++          throw new Error("尚未找到 Anima Reference Adapter v2 LoRA；請先在原生風格參考區安裝，然後重試");
++        }
++        if (plan.route === "sdxl_adapter" &&
++          !(await checkNodeAvailable("IPAdapterUnifiedLoader"))) {
++          throw new Error("尚未偵測到 IPAdapterUnifiedLoader；請先於原生風格參考區安裝 IP-Adapter Plus");
++        }
++        generation.mode = "txt2img";
++        await tick();
++        generation.styleRefImage = primary.name;
++        generation.styleRefImage2 = null;
++        generation.styleRefEnabled = true;
++        if (plan.route === "anima_character") generation.styleTransferEnabled = false;
++        if (plan.route === "anima_character") {
++          generation.animaRefGuidance = 1 + settings.character.strength * 0.09;
++        } else {
++          generation.styleRefStrength = plan.nativeStrength ?? 0.6;
++          generation.styleRefWeightType = plan.ordered[0] === "style" ? "style transfer" : "linear";
++        }
++      }
++      generation.saveSettings();
++      creativeToolsOpen = false;
++      gallery.showToast("08 參考圖片已帶入原生流程；確認設定後按「生成」。", "success");
++    } catch (e) {
++      creativeError = e instanceof Error ? e.message : String(e);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
+   async function readCreativeSourceSize(image: OutputImage | null, localBytes: number[] | null) {
+     const requestId = ++creativeRequestId;
+     creativeSourceSize = null;
+@@ -910,6 +1107,7 @@
+       { label: "", action: () => {}, separator: true },
+       { label: locale.t('generation.ctx.upscale'), action: () => upscaleImage(image) },
+       { label: locale.t('generation.ctx.inpaint'), action: () => inpaintImage(image) },
++      { label: '送到 creative-tools｜08 參考圖', action: () => selectCreativeReference(image) },
+       { label: '送到 creative-tools｜向外延伸', action: () => selectCreativeSource(image, 'outpaint') },
+       { label: '送到 creative-tools｜後製', action: () => selectCreativeSource(image, 'postprocess') },
+       // NovelAI only, and only with a key: the entry is hidden rather than
+@@ -1664,6 +1862,7 @@
+   onDestroy(() => {
+     creativeRequestId += 1;
+     if (creativeLocalUrl) URL.revokeObjectURL(creativeLocalUrl);
++    for (const kind of REFERENCE_KINDS) clearCreativeReference(kind);
+     if (pasteHandler) window.removeEventListener("paste", pasteHandler);
+     if (windowDragOverHandler) window.removeEventListener("dragover", windowDragOverHandler);
+     if (windowDropHandler) window.removeEventListener("drop", windowDropHandler);
+@@ -2558,7 +2757,7 @@
+ 
+     {#if creativeToolsOpen && generation.mode !== "video"}
+       <div class="flex-1 min-w-0 overflow-hidden">
+-        <CreativeToolsPanel selected={creativeTool} hasImage={creativeSource !== null || creativeLocalBytes !== null} sourceSize={creativeSourceSize} sourceLoading={creativeSourceLoading} modelName={generation.checkpoint || ""} localBackend={!generation.isNovelAi} sourceUrl={creativeLocalUrl || creativeSource?.thumbnailUrl || creativeSource?.url || null} busy={creativeBusy} error={creativeError} onSelect={(tool) => { creativeTool = tool; creativeError = null; }} onPickImage={revealCreativeGallery} onLocalImage={creativeSelectLocal} onOutpaint={creativeToOutpaint} onNativeUpscale={creativeToPostprocess} onClose={() => creativeToolsOpen = false} />
++        <CreativeToolsPanel selected={creativeTool} hasImage={creativeSource !== null || creativeLocalBytes !== null} sourceSize={creativeSourceSize} sourceLoading={creativeSourceLoading} modelName={generation.checkpoint || ""} modelFamily={generation.modelFamily} localBackend={!generation.isNovelAi} sourceUrl={creativeLocalUrl || creativeSource?.thumbnailUrl || creativeSource?.url || null} busy={creativeBusy} error={creativeError} referenceImages={creativeReferences} referenceUploading={creativeReferenceUploading} referencePickTarget={creativeReferencePickTarget} onReferencePick={pickCreativeReference} onReferenceLocal={creativeReferenceLocal} onReferenceCopy={copyCreativeReference} onReferenceClear={clearCreativeReference} onReferenceApply={creativeToReference} onSelect={(tool) => { creativeTool = tool; creativeError = null; }} onPickImage={revealCreativeGallery} onLocalImage={creativeSelectLocal} onOutpaint={creativeToOutpaint} onNativeUpscale={creativeToPostprocess} onClose={() => creativeToolsOpen = false} />
+       </div>
+     {:else if canvas.isCanvasMode}
+       <div class="flex-1 min-w-0 flex flex-col overflow-hidden">

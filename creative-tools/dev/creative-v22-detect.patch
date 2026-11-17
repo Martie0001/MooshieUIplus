@@ -1,0 +1,26 @@
+diff --git a/src-tauri/src/templates/controlnet.rs b/src-tauri/src/templates/controlnet.rs
+index 425561e..e3a8cb4 100644
+--- a/src-tauri/src/templates/controlnet.rs
++++ b/src-tauri/src/templates/controlnet.rs
+@@ -312,6 +312,21 @@ pub fn build_preprocessor_preview_workflow(image: &str, preprocessor: &str) -> V
+         (preprocess_id, 0)
+     };
+ 
++    // The OpenPose preprocessor also returns the actual detected keypoints on
++    // output 1. PreviewAny exposes these as text in ComfyUI history, allowing
++    // creative-tools to load editable positions without guessing from pixels.
++    if preprocessor == "OpenposePreprocessor" {
++        let preview_id = next_id.to_string();
++        workflow.insert(
++            preview_id,
++            json!({
++                "class_type": "PreviewAny",
++                "inputs": { "source": [image_source.0.clone(), 1] }
++            }),
++        );
++        next_id += 1;
++    }
++
+     append_preprocessor_preview_save(&mut workflow, &mut next_id, &image_source);
+ 
+     Value::Object(workflow)

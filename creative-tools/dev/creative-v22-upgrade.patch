@@ -1,0 +1,82 @@
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -33,7 +33,8 @@
+   import { uploadImage, uploadImageBytes, getOutputImage, readClipboardImageSafe, checkNodeAvailable } from "../../utils/api.js";
+   import { checkStyleTransferNodesReady } from "../../utils/styleTransferNodes.js";
+   import { imageUrlToPngBytes, loadOutputImageForGenerationInput, uploadOutputImageForGenerationInput } from "../../utils/galleryActions.js";
+-  import { prepareOutpaint, type OutpaintDirection, type OutpaintAmountUnit } from "../../utils/creativeOutpaint.js";
++  import { prepareOutpaint, type OutpaintDirection, type OutpaintAmountUnit } from "../../utils/creativeOutpaint.js";
++  import { getPresetModel } from "../../config/controlnet-presets.js";
+   import {
+     planReferenceHandoff, REFERENCE_KINDS, REFERENCE_LABELS,
+     type ReferenceKind, type ReferenceSettings,
+@@ -371,7 +372,48 @@
+       creativeBusy = false;
+     }
+   }
+-  async function creativeToPostprocess(facefix: boolean, upscale: boolean) {
++  async function creativeToPose(bytes: number[]): Promise<void> {
++    if (creativeBusy) return;
++    creativeError = null;
++    const family = generation.modelFamily;
++    if (generation.isNovelAi || !generation.checkpoint ||
++        !["illustrious", "sdxl", "pony", "kolors", "sd15"].includes(family)) {
++      creativeError = "目前選擇的模型不支援已確認的原生 OpenPose ControlNet 路徑";
++      return;
++    }
++    const entry = getPresetModel("openpose", family);
++    if (!entry || !models.controlnetModels.includes(entry.filename)) {
++      creativeError = `未安裝相容的姿勢控制權重：${entry?.filename ?? "未知"}`;
++      return;
++    }
++    creativeBusy = true;
++    try {
++      const nodes = await Promise.all([
++        checkNodeAvailable("ControlNetLoader"),
++        checkNodeAvailable("ControlNetApplyAdvanced"),
++      ]);
++      if (!nodes.every(Boolean)) throw new Error("缺少原生 ControlNet 核心節點");
++      const uploaded = await uploadImageBytes(bytes, `creative_pose_${Date.now()}.png`);
++      generation.mode = "txt2img";
++      await tick();
++      generation.controlnetMode = "custom";
++      generation.controlnetPreset = null;
++      generation.controlnetModel = entry.filename;
++      generation.controlnetPreprocessor = null; // Skeleton pixels are already OpenPose output.
++      generation.controlnetImage = uploaded.name;
++      generation.controlnetEnabled = true;
++      generation.styleTransferEnabled = false;
++      generation.saveSettings();
++      creativeToolsOpen = false;
++      gallery.showToast("22 骨架圖片已交給原生 ControlNet。確認設定後按生成。", "success");
++    } catch (error) {
++      creativeError = error instanceof Error ? error.message : String(error);
++    } finally {
++      creativeBusy = false;
++    }
++  }
++
++  async function creativeToPostprocess(facefix: boolean, upscale: boolean) {
+     if ((!creativeSource && !creativeLocalBytes) || creativeBusy) return;
+     if (generation.isNovelAi || !generation.checkpoint) {
+       creativeError = "請先選擇本地 ComfyUI 模型；NovelAI 模式目前不支援此工具。";
+@@ -1109,7 +1151,8 @@
+       { label: locale.t('generation.ctx.inpaint'), action: () => inpaintImage(image) },
+       { label: '送到 creative-tools｜08 參考圖', action: () => selectCreativeReference(image) },
+       { label: '送到 creative-tools｜向外延伸', action: () => selectCreativeSource(image, 'outpaint') },
+-      { label: '送到 creative-tools｜後製', action: () => selectCreativeSource(image, 'postprocess') },
++      { label: '送到 creative-tools｜姿勢參考', action: () => selectCreativeSource(image, 'pose') },
++      { label: '送到 creative-tools｜後製', action: () => selectCreativeSource(image, 'postprocess') },
+       // NovelAI only, and only with a key: the entry is hidden rather than
+       // disabled, because there is nothing the user can do about it from here.
+       ...(directorToolsAvailable()
+@@ -1962,7 +2005,7 @@
+ 
+     {#if creativeToolsOpen && generation.mode !== "video"}
+       <div class="flex-1 min-w-0 overflow-hidden">
+-        <CreativeToolsPanel selected={creativeTool} hasImage={creativeSource !== null || creativeLocalBytes !== null} sourceSize={creativeSourceSize} sourceLoading={creativeSourceLoading} modelName={generation.checkpoint || ""} modelFamily={generation.modelFamily} localBackend={!generation.isNovelAi} sourceUrl={creativeLocalUrl || creativeSource?.thumbnailUrl || creativeSource?.url || null} busy={creativeBusy} error={creativeError} referenceImages={creativeReferences} referenceUploading={creativeReferenceUploading} referencePickTarget={creativeReferencePickTarget} onReferencePick={pickCreativeReference} onReferenceLocal={creativeReferenceLocal} onReferenceCopy={copyCreativeReference} onReferenceClear={clearCreativeReference} onReferenceApply={creativeToReference} onSelect={(tool) => { creativeTool = tool; creativeError = null; }} onPickImage={revealCreativeGallery} onLocalImage={creativeSelectLocal} onOutpaint={creativeToOutpaint} onNativeUpscale={creativeToPostprocess} onClose={() => creativeToolsOpen = false} />
++        <CreativeToolsPanel selected={creativeTool} hasImage={creativeSource !== null || creativeLocalBytes !== null} sourceSize={creativeSourceSize} sourceLoading={creativeSourceLoading} modelName={generation.checkpoint || ""} modelFamily={generation.modelFamily} localBackend={!generation.isNovelAi} sourceUrl={creativeLocalUrl || creativeSource?.thumbnailUrl || creativeSource?.url || null} busy={creativeBusy} error={creativeError} referenceImages={creativeReferences} referenceUploading={creativeReferenceUploading} referencePickTarget={creativeReferencePickTarget} onReferencePick={pickCreativeReference} onReferenceLocal={creativeReferenceLocal} onReferenceCopy={copyCreativeReference} onReferenceClear={clearCreativeReference} onReferenceApply={creativeToReference} onSelect={(tool) => { creativeTool = tool; creativeError = null; }} onPickImage={revealCreativeGallery} onLocalImage={creativeSelectLocal} onOutpaint={creativeToOutpaint} onNativeUpscale={creativeToPostprocess} poseWidth={generation.width} poseHeight={generation.height} onPoseApply={creativeToPose} onClose={() => creativeToolsOpen = false} />
+       </div>
+     {:else if canvas.isCanvasMode}
+       <div class="flex-1 min-w-0 flex flex-col overflow-hidden">

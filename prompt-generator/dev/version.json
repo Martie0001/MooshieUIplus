@@ -1,0 +1,6 @@
+{
+  "id": "prompt-generator",
+  "name": "Prompt Generator",
+  "version": "1.0.2",
+  "description": "Prompt Generator 整合模組：改用使用者可設定服務位置，原有 TAG 與生成介面保留。需另外安裝服務。"
+}

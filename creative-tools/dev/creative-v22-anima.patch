@@ -1,0 +1,68 @@
+diff --git a/src/lib/config/controlnet-presets.ts b/src/lib/config/controlnet-presets.ts
+--- a/src/lib/config/controlnet-presets.ts
++++ b/src/lib/config/controlnet-presets.ts
+@@ -1,6 +1,13 @@
+       sd15: {
+         filename: "control_v11p_sd15_openpose_fp16.safetensors",
+         url: "https://huggingface.co/comfyanonymous/ControlNet-v1-1_fp16_safetensors/resolve/main/control_v11p_sd15_openpose_fp16.safetensors",
+       },
++      anima: {
++        filename: "anima-lllite-pose-1.safetensors",
++        url: "https://huggingface.co/kohya-ss/Anima-LLLite/resolve/main/anima-lllite-pose-1.safetensors",
++        category: "model_patches",
++        preprocessor: "DWPreprocessor",
++        defaults: { strength: 1.0, startPercent: 0, endPercent: 1 },
++      },
+     },
+   },
+   {
+     id: "lineart",
+diff --git a/src/lib/components/generation/ControlNetSettings.svelte b/src/lib/components/generation/ControlNetSettings.svelte
+--- a/src/lib/components/generation/ControlNetSettings.svelte
++++ b/src/lib/components/generation/ControlNetSettings.svelte
+@@ -1 +1 @@
+-  const ANIMA_PRESET_IDS = ["depth", "anytest_2000", "anytest_1000", "inpainting"];
++  const ANIMA_PRESET_IDS = ["openpose", "depth", "anytest_2000", "anytest_1000", "inpainting"];
+diff --git a/src/lib/components/generation/GenerationPage.svelte b/src/lib/components/generation/GenerationPage.svelte
+--- a/src/lib/components/generation/GenerationPage.svelte
++++ b/src/lib/components/generation/GenerationPage.svelte
+@@ -1,22 +1,25 @@
+     const family = generation.modelFamily;
+     if (generation.isNovelAi || !generation.checkpoint ||
+-        !["illustrious", "sdxl", "pony", "kolors", "sd15"].includes(family)) {
++        !["anima", "illustrious", "sdxl", "pony", "kolors", "sd15"].includes(family)) {
+       creativeError = "目前選擇的模型不支援已確認的原生 OpenPose ControlNet 路徑";
+       return;
+     }
+     const entry = getPresetModel("openpose", family);
+-    if (!entry || !models.controlnetModels.includes(entry.filename)) {
++    const installed = family === "anima" ? models.modelPatches : models.controlnetModels;
++    if (!entry || !installed.includes(entry.filename)) {
+       creativeError = `未安裝相容的姿勢控制權重：${entry?.filename ?? "未知"}`;
+       return;
+     }
+     creativeBusy = true;
+     try {
+-      const nodes = await Promise.all([
+-        checkNodeAvailable("ControlNetLoader"),
+-        checkNodeAvailable("ControlNetApplyAdvanced"),
+-      ]);
+-      if (!nodes.every(Boolean)) throw new Error("缺少原生 ControlNet 核心節點");
++      const checks = family === "anima"
++        ? [checkNodeAvailable("ModelPatchLoader"), checkNodeAvailable("AnimaLLLiteApply", ["model_patch"])]
++        : [checkNodeAvailable("ControlNetLoader"), checkNodeAvailable("ControlNetApplyAdvanced")];
++      if (!(await Promise.all(checks)).every(Boolean)) {
++        throw new Error("缺少適用於目前模型的姿勢控制節點");
++      }
+       const uploaded = await uploadImageBytes(bytes, `creative_pose_${Date.now()}.png`);
+@@ -1,7 +1,9 @@
+       generation.controlnetPreprocessor = null; // Skeleton pixels are already OpenPose output.
+       generation.controlnetImage = uploaded.name;
+       generation.controlnetEnabled = true;
++      if (family === "anima") generation.controlnetStrength = 1.0;
+       generation.styleTransferEnabled = false;
+       generation.saveSettings();
+       creativeToolsOpen = false;
+-      gallery.showToast("22 骨架圖片已交給原生 ControlNet。確認設定後按生成。", "success");
++      gallery.showToast(family === "anima" ? "22 骨架已交給 Anima LLLite Pose；確認後按生成。" :
++        "22 骨架圖片已交給原生 ControlNet。確認設定後按生成。", "success");
