@@ -1,8 +1,8 @@
-# MooshieUIplus v0.2.2｜Windows EXE 圖形模組管理器
+# MooshieUIplus v0.2.3｜Windows EXE 圖形模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
-Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管理器 EXE 由 C#/.NET Framework 編譯，會啟動內附的 Windows PowerShell/WPF 管理介面，**不是單獨的完整主程式安裝包**。該 EXE 未做程式碼簽章，Windows 可能顯示 SmartScreen 警示，請只從本專案 GitHub Release 下載並核對版本。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
+Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管理器 EXE 由 C#/.NET Framework 編譯，會啟動內附的 Windows PowerShell/WPF 管理介面，**不是單獨的完整主程式安裝包**。需要 Windows 10／11 的 .NET Framework 4.x（含 WPF）及 Windows PowerShell 5.1；原版 MooshieUI 桌面視窗依賴 Microsoft Edge WebView2 Runtime。該 EXE 未做程式碼簽章，Windows 可能顯示 SmartScreen 警示，請只從本專案 GitHub Release 下載並核對版本。這是參考 MIT 授權的 [bsmg/ModAssistant](https://github.com/bsmg/ModAssistant) WPF/XAML 版面設計的原生 Windows 管理介面，保留獨立的 MooshieUIplus 更新功能；不會執行 Beat Saber 的 ModAssistant.exe。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
 
 ## 日常使用（不需 CMD）
 
@@ -34,6 +34,13 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 ## A 開發者版本
 
 原始碼包仍保留 `module-manager/module-manager.ps1` 的開發者編譯功能，不受一般使用者免編譯管理器切換影響。
+
+## 啟動／安裝故障排除
+
+- 雙擊後沒有視窗：新版會等待 WPF 視窗實際呈現，失敗時顯示錯誤訊息；日誌位於 `%LOCALAPPDATA%\MooshieUIplus\temp\manager-start-*.log`。若完全沒有 EXE 反應，先檢查 Windows .NET Framework 4.x／WPF 是否可用，並確認電腦政策沒有停用 PowerShell。
+- ZIP 必須完整解壓縮，Manager EXE 與 `模組管理器.ps1`、`Install-MooshieUIplus.ps1`、`Release-Update.ps1` 必須在同一資料夾。
+- 安裝目標若在 `Program Files`，Windows 可能顯示 UAC 權限確認；拒絕權限時不會強制變更檔案。企業 GPO 政策與防毒軟體封鎖需由電腦管理者處理，不會被執行政策旗標強行繞過。
+- 無法啟動原版 MooshieUI 視窗：檢查 WebView2 Runtime；若更新 GitHub 失敗，檢查是否能連線到 `api.github.com` 與 `github.com`，以及企業代理／TLS 設定。
 
 ## 限制
 

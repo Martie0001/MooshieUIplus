@@ -26,7 +26,7 @@ Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAs
 
 **舊版 v0.1.1／v0.2.0 使用者：** 為避免舊更新器未安裝完整執行元件，建議直接下載最新版 B Windows ZIP、完整解壓後雙擊 `MooshieUIplus-Manager.exe`，選擇原本正在使用的 MooshieUI EXE，透過「本地套件安裝」一次更新 EXE 與 Node runtime。舊更新器仍可用作過渡，但可能需要再執行一次新版管理器更新。
 
-B 版不需要編譯工具，管理器使用 Windows 內建 .NET Framework／Windows PowerShell（附完整管理器腳本，但一般使用者不需自行開啟）。EXE 未數位簽章，可能遇到 Windows SmartScreen 提示；請使用本專案 Release 並核對雜湊。仍需要可正常使用的官方 MooshieUI 2.3.49 與 ComfyUI 後端。本套件不是完整 ComfyUI 安裝程式，也**不會自動跨版更新**。四個模組共用同一個已編譯 EXE，並非可以獨立熱插拔的外掛。
+B 版不需要編譯工具；管理器需要 Windows 10／11 上的 .NET Framework 4.x／WPF 與 Windows PowerShell 5.1（附完整管理器腳本，但一般使用者不需自行開啟）。原版 MooshieUI 桌面視窗另需 Edge WebView2 Runtime。EXE 未數位簽章，可能遇到 Windows SmartScreen 提示；請使用本專案 Release 並核對雜湊。管理器啟動失敗會顯示錯誤與日誌位置，`Program Files` 安裝可能顯示 Windows UAC 提權。仍需要可正常使用的官方 MooshieUI 2.3.49 與 ComfyUI 後端。本套件不是完整 ComfyUI 安裝程式，也**不會自動跨版更新**。四個模組共用同一個已編譯 EXE，並非可以獨立熱插拔的外掛。
 
 ## A：開發者與原始碼安裝
 

@@ -85,6 +85,31 @@ if (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue) {
   throw "MooshieUI 仍在執行中。請先關閉程式再安裝／還原。"
 }
 
+# Protected installation locations require a visible UAC consent prompt, not a hidden access-denied failure.
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+  [Security.Principal.WindowsBuiltInRole]::Administrator)
+$protectedRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432) |
+  Where-Object { $_ } | Select-Object -Unique
+$protectedTarget = $false
+foreach ($base in $protectedRoots) {
+  $prefix = [IO.Path]::GetFullPath($base).TrimEnd('\') + '\'
+  if ($AppExe.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { $protectedTarget = $true; break }
+}
+if ($protectedTarget -and -not $isAdmin) {
+  Write-Output "目標位於 Program Files，安裝或還原需要 Windows 系統管理員權限，將顯示 UAC 確認。"
+  $command = @("-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File",
+    ('"' + $MyInvocation.MyCommand.Path + '"'), "-AppExe", ('"' + $AppExe + '"'),
+    "-PackageRoot", ('"' + $packageRoot + '"'))
+  if ($Restore) { $command += "-Restore" }
+  try {
+    $elevated = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $command -PassThru -Wait -ErrorAction Stop
+  } catch {
+    throw "無法取得安裝權限（UAC 可能遭拒）：$($_.Exception.Message)。未修改正式程式。"
+  }
+  if ($elevated.ExitCode -ne 0) { throw "系統管理員安裝失敗（退出碼：$($elevated.ExitCode)），請檢查 UAC 視窗中的錯誤。" }
+  exit 0
+}
+
 $backupFolder = Join-Path $backupRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
 New-Item -ItemType Directory -Path $backupFolder -Force | Out-Null
 $backupExe = Join-Path $backupFolder "comfyui-desktop.exe"

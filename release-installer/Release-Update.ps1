@@ -6,6 +6,8 @@
   [string]$TempRoot = ""
 )
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 on older, supported Windows configurations may otherwise negotiate obsolete TLS.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $repo = "Martie0001/MooshieUIplus"
 $headers = @{ "User-Agent"="MooshieUIplus-Manager"; "Accept"="application/vnd.github+json" }
 $appExe = (Resolve-Path -LiteralPath $AppExe).Path
@@ -123,6 +125,35 @@ if ($Action -eq "Check" -or $result.status -eq "current") {
 }
 if (($needsExe -or $needsRuntime) -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
   throw "MooshieUI 仍在執行，請關閉後再替換 EXE。"
+}
+# On protected directories, request UAC before any file replacement. A declined UAC is a visible failure.
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+  [Security.Principal.WindowsBuiltInRole]::Administrator)
+$protectedRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432) |
+  Where-Object { $_ } | Select-Object -Unique
+$protectedDestination = $false
+foreach ($base in $protectedRoots) {
+  $prefix = [IO.Path]::GetFullPath($base).TrimEnd('\') + '\'
+  if ((($needsExe -or $needsRuntime) -and $appExe.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) -or
+      ($needsManager -and $ManagerRoot.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase))) {
+    $protectedDestination = $true
+    break
+  }
+}
+if ($protectedDestination -and -not $isAdmin) {
+  Write-Output "更新位置需要系統管理員權限，將顯示 Windows UAC 確認。"
+  $command = @("-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File",
+    ('"' + $MyInvocation.MyCommand.Path + '"'), "-Action", "Update",
+    "-AppExe", ('"' + $appExe + '"'), "-ManagerRoot", ('"' + $ManagerRoot + '"'))
+  if ($ResultFile) { $command += @("-ResultFile", ('"' + $ResultFile + '"')) }
+  if ($TempRoot) { $command += @("-TempRoot", ('"' + $TempRoot + '"')) }
+  try {
+    $elevated = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $command -PassThru -Wait -ErrorAction Stop
+  } catch {
+    throw "未取得更新所需管理員權限（UAC 可能遭拒）：$($_.Exception.Message)。未安裝更新。"
+  }
+  if ($elevated.ExitCode -ne 0) { throw "系統管理員更新失敗（退出碼：$($elevated.ExitCode)），請檢查更新日誌。" }
+  exit 0
 }
 $asset = if ($managerAsset) { $managerAsset } else { $fullAsset }
 $assetUrl = [string]$asset.browser_download_url

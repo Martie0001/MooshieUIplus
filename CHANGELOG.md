@@ -4,11 +4,33 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前為 `0.2.2`（翻譯區 Ollama 模型選擇與同步；不代表其他模組全部驗收通過）。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前為 `0.2.3`（Windows 管理器啟動與權限修復；不代表其他模組全部驗收通過）。
 - **官方 MooshieUI 版本**：獨立標示上游版本，目前適配 `2.3.49`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
+
+## [0.2.3] — 2026-11-17
+
+**適配：MooshieUI 2.3.49｜Prompt Generator 1.1.2｜Manager 0.2.3**
+
+### 修復
+
+- Windows 模組管理器 EXE 不再只檢查 PowerShell 子程序有沒有建立：待 WPF 視窗完成首次呈現並回報啟動訊號後，才回傳成功；PowerShell 於啟動期間退出時，顯示實際錯誤與診斷日誌位置。
+- 管理器 UI 啟動或執行錯誤寫入 `%LOCALAPPDATA%\MooshieUIplus\temp`；保留原本的圖形介面及單獨 PowerShell 子程序，以免更新時鎖住 Manager EXE。
+- 對 `Program Files` 下的 EXE 安裝／還原及管理器更新新增 UAC 提權流程；使用者拒絕提權時顯示明確錯誤，不無聲失敗。
+- GitHub 更新器明確使用 TLS 1.2，以降低舊版 Windows PowerShell／.NET 預設 TLS 設定造成的 HTTPS 連線問題。
+
+### 範圍與已知限制
+
+- 本版只更新 Windows 管理器、安裝／更新腳本與發行說明，**共用 MooshieUI EXE 未重新編譯，Prompt Generator 等四個模組版次不變**。
+- B ZIP 仍需完整解壓縮，管理器 EXE 不能單獨拿走使用；Windows 仍需 .NET Framework／WPF、PowerShell 5.1，MooshieUI 桌面程式仍需 WebView2。Ollama 必須由使用者另外安裝。
+- 企業 GPO 限制、缺少 .NET／WebView2、UAC 拒絕與全新 Windows 電腦的實際情境，尚未取得跨機驗證，不能宣稱通過。
+
+### 實際驗證
+
+- 本機 Windows 11：三支 PowerShell 腳本語法分析各 0 錯誤；Manager EXE 成功編譯；隔離資料夾 `--check` 返回 0、實際啟動 WPF 視窗並收到啟動確認、成功關閉測試視窗；安裝器 `-VerifyOnly` 對 2.3.49 整合包返回 0，未修改正式 EXE。
+- 權限不足的真實非管理員帳號、企業 GPO、缺少 .NET／WebView2 與其他電腦的首次安裝**尚未驗證**；UAC 分支本輪只完成程式碼與語法檢查。
 
 ## [0.2.2] — 2026-11-17
 

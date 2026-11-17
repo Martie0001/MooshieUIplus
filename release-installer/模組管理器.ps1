@@ -1,9 +1,29 @@
 ﻿param(
   [ValidateSet("","Local","Restore","Check","Update")][string]$Action = "",
   [string]$AppExe = "",
-  [string]$ResultFile = ""
+  [string]$ResultFile = "",
+  [string]$StartupSignal = "",
+  [string]$ErrorLog = ""
 )
 $ErrorActionPreference = "Stop"
+$script:uiReady = $false
+trap {
+  $details = ($_ | Out-String)
+  if ($ErrorLog) {
+    try { [IO.File]::WriteAllText($ErrorLog, $details, [Text.Encoding]::UTF8) } catch {}
+  }
+  if ($Action) {
+    [Console]::Error.WriteLine($details)
+  } elseif ($script:uiReady) {
+    try {
+      Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+      [System.Windows.Forms.MessageBox]::Show(
+        "管理器啟動或執行時發生錯誤。詳情：$details", "MooshieUIplus 模組管理器",
+        [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+    } catch {}
+  }
+  exit 10
+}
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $installer = Join-Path $root "Install-MooshieUIplus.ps1"
 $remote = Join-Path $root "Release-Update.ps1"
@@ -12,7 +32,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
-$managerVersion = "0.2.1"
+$managerVersion = "0.2.3"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
@@ -180,14 +200,14 @@ foreach ($n in @("VersionText","IntroNav","ModsNav","AboutNav","OptionsNav","Int
   Set-Variable -Scope Script -Name $n -Value $window.FindName($n)
 }
 $window.Title = "MooshieUIplus v$managerVersion｜模組管理器"
-$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.49`n本版修復 Prompt Generator 可攜服務與 Ollama 模型選擇；詳細修正見 GitHub 更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
+$AboutVersion.Text = "管理器：v$managerVersion；官方 MooshieUI：2.3.49`n本版改善 Windows 環境啟動診斷、安裝權限與更新失敗提示；詳見 GitHub 更新紀錄。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
 $table = New-Object System.Data.DataTable
 foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) { [void]$table.Columns.Add($name,[string]) }
 [void]$table.Columns.Add("Verified",[bool])
 foreach ($item in @(
   @("LoRA Manager","1.3.1","LoRA 瀏覽、分類與資訊管理"),
   @("TAG Manager","1.0.1","中英 TAG 對照與提示"),
-  @("Prompt Generator","1.1.1","內建可攜提示詞服務、Ollama 模型自訂與測試；需另裝 Ollama"),
+  @("Prompt Generator","1.1.2","提示詞與翻譯模型雙向同步、自訂 Ollama 模型與測試；需另裝 Ollama"),
   @("Creative Tools","0.5.0","擴圖、姿勢、後製與漫畫工具")
 )) {
   $row = $table.NewRow()
@@ -358,4 +378,13 @@ if(-not $script:appExe){
 }
 Refresh-Info
 Show-Page "Mods"
+$window.Add_ContentRendered({
+  $script:uiReady = $true
+  if ($StartupSignal) {
+    try { [IO.File]::WriteAllText($StartupSignal, "READY", [Text.Encoding]::UTF8) }
+    catch {
+      if ($ErrorLog) { [IO.File]::WriteAllText($ErrorLog, ($_ | Out-String), [Text.Encoding]::UTF8) }
+    }
+  }
+})
 [void]$window.ShowDialog()
