@@ -25,13 +25,15 @@ if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) {
 $AppExe = (Resolve-Path -LiteralPath $AppExe).Path
 if ([IO.Path]::GetFileName($AppExe) -ne "comfyui-desktop.exe") { throw "目標必須是 comfyui-desktop.exe" }
 $targetVersion = (Get-Item -LiteralPath $AppExe).VersionInfo.ProductVersion
-if ($targetVersion -ne "2.3.49") { throw "僅支援 MooshieUI 2.3.49，找到版本：$targetVersion" }
+if (-not $targetVersion) { throw "無法辨識 MooshieUI 版本。" }
 
 if ($Restore) {
   $last = Get-ChildItem -LiteralPath $backupRoot -Filter "backup.json" -Recurse -File -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Where-Object {
       $record = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-      $record.appExe -eq $AppExe
+      $savedExe = Join-Path $_.DirectoryName "comfyui-desktop.exe"
+      $record.appExe -eq $AppExe -and (Test-Path -LiteralPath $savedExe) -and
+        (Get-Item -LiteralPath $savedExe).VersionInfo.ProductVersion -eq $targetVersion
     } | Select-Object -First 1
   if (-not $last) { throw "此 MooshieUI 安裝位置沒有可還原的 EXE 備份。" }
   $source = Join-Path $last.DirectoryName "comfyui-desktop.exe"
@@ -42,7 +44,7 @@ if ($Restore) {
     throw "安裝包缺少 manifest.json 或整合版執行檔。"
   }
   $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($manifest.mooshieuiVersion -ne "2.3.49" -or
+  if ($manifest.mooshieuiVersion -ne $targetVersion -or
       -not $manifest.payloadSha256 -or
       ((Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ne $manifest.payloadSha256)) {
     throw "整合版版本或 SHA256 驗證失敗，未修改任何檔案。"
@@ -67,7 +69,7 @@ Copy-Item -LiteralPath $AppExe -Destination $backup -ErrorAction Stop
 if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash -ne $currentHash) {
   throw "目前執行檔備份驗證失敗，未執行替換。"
 }
-[ordered]@{ appExe = $AppExe; originalSha256 = $currentHash; createdAt = (Get-Date).ToString("o") } |
+[ordered]@{ appExe = $AppExe; appVersion = $targetVersion; originalSha256 = $currentHash; createdAt = (Get-Date).ToString("o") } |
   ConvertTo-Json | Set-Content -LiteralPath (Join-Path $backupFolder "backup.json") -Encoding UTF8
 try {
   Copy-Item -LiteralPath $source -Destination $AppExe -Force -ErrorAction Stop

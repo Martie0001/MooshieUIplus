@@ -1,43 +1,41 @@
-# MooshieUIplus B｜Windows 免編譯模組管理器
+# MooshieUIplus｜GitHub 模組管理器
 
-**適用 Windows x64、官方 MooshieUI 2.3.49。** 這是整合模組的 EXE 替換包，並非可在空白電腦直接安裝 ComfyUI 的完整安裝器。
+Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境。此工具需要**先安裝且可啟動的 MooshieUI／ComfyUI**，不是完整主程式安裝器。
 
-## 首次使用：從模組管理器安裝
+## 日常使用（不需 CMD）
 
-1. 先安裝並確認官方 **MooshieUI 2.3.49** 可正常啟動，且已有可運作的 ComfyUI 後端。
-2. 將整個 B ZIP 解壓縮到任意資料夾。**不要只複製模組管理器檔案**，需保留 payload、manifest、安裝器的相對位置。
-3. 雙擊根目錄 **`啟動模組管理.cmd`**。首次點選「選擇程式」，指定原本安裝的 `comfyui-desktop.exe`。
-4. 關閉 MooshieUI，點選「安裝／更新本地套件」，核對提示後確認。
-5. 管理器會檢查相容版本及 SHA256，由安裝器備份原始 EXE，成功後才替換。原始模型、設定與輸出不會被修改。
+1. 下載 B Windows ZIP，解壓縮後直接雙擊 **`啟動模組管理.vbs`**。不必打開 PowerShell 或 CMD。
+2. 首次選擇 MooshieUI 的 `comfyui-desktop.exe`，下次會記住選取的位置。
+3. 按下 **「檢查 GitHub 並更新」**，管理器會讀取 GitHub Release 更新資訊，比對本機 EXE 與管理器版本。
+4. 若已是最新版，顯示結果，不下載完整更新包。若有更新，會顯示確認視窗，確認後再下載／安裝。
+5. 若只有管理器改版，優先下載小型管理器 ZIP；若整合 EXE 改版，才下載 B Windows ZIP。下載過的有效 ZIP 保存在本機快取，下次可重用。
+6. EXE 更新前會自動備份，必要時按 **「還原備份」**；有新的管理器時重開管理器即可使用新介面。
 
-## 後續從 GitHub Releases 更新
+整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準，不能跨版本覆蓋。
 
-1. 開啟同一個 **`啟動模組管理.cmd`**，按下「檢查 GitHub 更新」。
-2. 只搜尋公開、非預先發行，且與目前已安裝 **MooshieUI 主程式版本相同**的 B 版。
-3. 有相容發布版時，關閉 MooshieUI，按下「安裝發布版」並再次確認。
-4. 管理器會從 `Martie0001/MooshieUIplus` 的 GitHub Release 下載 B ZIP、核對檔案大小與可用的 GitHub SHA256 digest、核對 ZIP 內 EXE SHA256、備份原版，再部署。
-5. **不會背景自動更新或跨 MooshieUI 版本升級。** GitHub 尚未建立 Release 時會顯示沒有可用發布版，這是正常結果。
+## 下載量
 
-> 目前四個模組共用同一個編譯後 EXE；不能將管理器的選單誤認為可獨立熱插拔的 ComfyUI custom nodes。發布版更新 EXE，不會自動替換已開啟的模組管理器本身；要更新管理器介面請重新下載新版 B ZIP。
+- **只檢查版本：** 讀取 GitHub Release JSON 與小型更新資訊；不下載 ZIP。
+- **相同版本：** 不下載 ZIP。
+- **只有管理器程式變更：** 下載小型管理器 ZIP。
+- **整合 EXE 變更：** 下載一次完整 B ZIP；該 ZIP 的檔案大小由 Release 實際內容決定。
+- **相同 ZIP 重裝：** 優先使用雜湊一致的本機快取。
 
-## 備份與還原
+快取：`%LOCALAPPDATA%\MooshieUIplus\cache\releases`。操作日誌：`%LOCALAPPDATA%\MooshieUIplus\temp`。備份：`%LOCALAPPDATA%\MooshieUIplus\history`。
 
-- 管理器「還原備份」使用與目前 EXE 位置相符的最新備份。
-- 備份在 `%LOCALAPPDATA%\MooshieUIplus\history\exe-backups`；不要刪除這個資料夾。
-- 舊版相容入口 `安裝.cmd`、`還原.cmd` 仍保留。
-- 更新與檢查紀錄在 `%LOCALAPPDATA%\MooshieUIplus\temp`。
-- MooshieUI 執行中時安裝器會拒絕替換；失敗時由既有安裝器嘗試從本次備份回復。
+## 離線安裝
 
-## 編譯環境與功能依賴
+在解壓完整 B Windows ZIP 的資料夾中，管理器會啟用「本地套件安裝」；若是在你已安裝的精簡管理器資料夾中，這項會停用，但 GitHub 直接更新與還原仍可使用。
 
-- **B 版不需要** Node.js、npm、Git、Rust/Cargo、Visual Studio C++ Build Tools 或 Windows SDK。
-- WebView2 與 ComfyUI 後端仍是 MooshieUI 本身正常執行的前提。
-- **Prompt Generator** 的獨立服務、外部 TAG 原始資料與 Ollama 不在 ZIP 內，須另行配置。
-- **Creative Tools** 部分功能需要對應的 ComfyUI 節點與 ControlNet 權重。
-- B ZIP 不含任何使用者 LoRA、模型權重、個人路徑或分類資料。
+## A 開發者版本
 
-開發者可另下載同一發布版中的 **A 完整整合原始碼包**，依其說明安裝建置工具並編譯。
+原始碼包仍保留 `module-manager/module-manager.ps1` 的開發者編譯功能，不受一般使用者免編譯管理器切換影響。
 
-本套件基於上游 MooshieUI 2.3.49（AGPL-3.0）。請閱讀 `LICENSE`、`NOTICE.md`。公開發布前仍須確認 TAG 中英詞庫的再散布權利。尚未完成其他電腦的完整 GUI／生圖驗收，不應宣稱全部功能都已驗收通過。
+## 限制
 
-GitHub：<https://github.com/Martie0001/MooshieUIplus>。已發布 [v2.3.49-plus-rc3](https://github.com/Martie0001/MooshieUIplus/releases/tag/v2.3.49-plus-rc3)；此候選版本已通過隔離安裝／還原及 GitHub 下載安裝測試，其他電腦的完整 GUI／生圖功能仍未驗證。
+- Prompt Generator 的外部服務、TAG 私有資料與 Ollama 不會隨 B ZIP 自動配置。
+- Creative Tools 部分功能依賴對應 ComfyUI 節點／模型。
+- TAG 詞庫原始來源與再散布權利仍待進一步釐清；請參閱 `NOTICE.md`。
+- 未完成其他電腦的完整 UI／生圖驗收，不得宣稱所有功能通過。
+
+GitHub：<https://github.com/Martie0001/MooshieUIplus>

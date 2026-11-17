@@ -6,7 +6,7 @@
 
 | 版本 | 對象 | 建置工具 | 安裝方式 |
 | --- | --- | --- | --- |
-| **B：Windows 免編譯模組管理器** | 一般使用者 | 不需要 Node.js、Rust、Git 或 C++ Build Tools | 安裝原版 MooshieUI 2.3.49，解壓 ZIP，執行「啟動模組管理.cmd」 |
+| **B：Windows 免編譯模組管理器** | 一般使用者 | 不需要 Node.js、Rust、Git 或 C++ Build Tools | 安裝原版 MooshieUI 2.3.49，解壓 ZIP，雙擊「啟動模組管理.vbs」 |
 | **A：完整整合原始碼包** | 開發者、想修改功能的使用者 | 需要 Node.js/npm、Git、Rust/Cargo、Visual Studio C++ Build Tools、Windows SDK | 用隨附原始碼編譯，或將模組套用到乾淨的官方 2.3.49 原始碼 |
 
 **請勿把兩個 ZIP 當成適用不同版本的程式。兩者均只支援 MooshieUI 2.3.49。** 下載最新版 MooshieUI 並不代表此套件已適配。
@@ -15,11 +15,10 @@
 
 1. 安裝官方 MooshieUI **2.3.49**，確認程式與 ComfyUI 後端可正常啟動。
 2. 下載 GitHub Release 內的 **B Windows ZIP**，完整解壓縮到任意資料夾，例如 `C:\AI\MooshieUIplus`。
-3. 雙擊 **`啟動模組管理.cmd`**，首次按「選擇程式」，指定已安裝的 `comfyui-desktop.exe`。
-4. 關閉 MooshieUI，再由管理器按「安裝／更新本地套件」。
-5. 管理器先核對版本及 SHA256、備份原本 EXE，成功才替換；不修改個人 `data`、模型、後端與設定。
-6. 日後可按「檢查 GitHub 更新」，只尋找同版 MooshieUI 的正式 B Release；有相容發布版才啟用「安裝發布版」，並要求使用者確認。
-7. 可以按「還原備份」復原，備份保存在 `%LOCALAPPDATA%\MooshieUIplus\history\exe-backups`。原有 `安裝.cmd`、`還原.cmd` 仍保留。
+3. 雙擊 **`啟動模組管理.vbs`**，首次指定已安裝的 `comfyui-desktop.exe`，無須使用 CMD。
+4. 需要首次安裝時，關閉 MooshieUI，按「本地套件安裝」，由管理器備份 EXE 後替換。
+5. 以後只要按一次 **「檢查 GitHub 並更新」**，有相容新版本時確認即可更新，不必再手動下載新的整包。管理器優先比對小型更新資訊與本機 SHA256，無變更不下載；只有管理器改版時只下載小型包，EXE 改版才下載完整 B ZIP；已驗證 ZIP 會快取重用。
+6. 需要還原時，按「還原備份」，備份儲存在 `%LOCALAPPDATA%\MooshieUIplus\history\exe-backups`。
 
 B 版不需要編譯工具，但仍需要可正常使用的官方 MooshieUI 2.3.49 與 ComfyUI 後端。本套件不是完整 ComfyUI 安裝程式，也**不會自動跨版更新**。四個模組共用同一個已編譯 EXE，並非可以獨立熱插拔的外掛。
 
@@ -51,4 +50,4 @@ node .\module-manager\install-clean.mjs "C:\path\to\mooshieui-2.3.49-source"
 
 ## GitHub
 
-GitHub 原始碼：<https://github.com/Martie0001/MooshieUIplus>。已公開發布：[v2.3.49-plus-rc3](https://github.com/Martie0001/MooshieUIplus/releases/tag/v2.3.49-plus-rc3)（A 原始碼 RC5／B Windows RC3）。後續每次完成模組更新與必要驗收，都應同步 GitHub 原始碼與對應 A/B Release；詳細流程參見 `PUBLISHING.md`。
+GitHub 原始碼：<https://github.com/Martie0001/MooshieUIplus>，最新版請使用 [GitHub Releases](https://github.com/Martie0001/MooshieUIplus/releases)。後續每次完成模組更新與必要驗收，都應同步 GitHub 原始碼、A／B ZIP、Manager 小型 ZIP 與更新資訊 JSON；詳細流程參見 `PUBLISHING.md`。

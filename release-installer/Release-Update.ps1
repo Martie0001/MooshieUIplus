@@ -1,106 +1,202 @@
 ﻿param(
   [ValidateSet("Check","Update")][string]$Action = "Check",
   [Parameter(Mandatory=$true)][string]$AppExe,
+  [string]$ManagerRoot = "",
   [string]$ResultFile = "",
   [string]$TempRoot = ""
 )
 $ErrorActionPreference = "Stop"
 $repo = "Martie0001/MooshieUIplus"
+$headers = @{ "User-Agent"="MooshieUIplus-Manager"; "Accept"="application/vnd.github+json" }
 $appExe = (Resolve-Path -LiteralPath $AppExe).Path
-if ([IO.Path]::GetFileName($appExe) -ne "comfyui-desktop.exe") {
-  throw "必須選擇 comfyui-desktop.exe。"
-}
+if ([IO.Path]::GetFileName($appExe) -ne "comfyui-desktop.exe") { throw "必須選擇 comfyui-desktop.exe。" }
 $baseVersion = (Get-Item -LiteralPath $appExe).VersionInfo.ProductVersion
-if (-not $baseVersion) { throw "無法辨識 MooshieUI 版本。" }
-$headers = @{ "User-Agent" = "MooshieUIplus-Release-Manager"; "Accept" = "application/vnd.github+json" }
+if (-not $baseVersion) { throw "無法辨識目前 MooshieUI 版本。" }
+if (-not $ManagerRoot) { $ManagerRoot = Split-Path -Parent $MyInvocation.MyCommand.Path }
+$ManagerRoot = (Resolve-Path -LiteralPath $ManagerRoot).Path
+$exeHash = (Get-FileHash -LiteralPath $appExe -Algorithm SHA256).Hash
+$cacheRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\cache\releases"
+if (-not $TempRoot) { $TempRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\temp" }
+$stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=30" -Headers $headers -TimeoutSec 25)
 $selected = $null
 foreach ($release in $releases) {
   if ($release.draft -or $release.prerelease) { continue }
   foreach ($asset in @($release.assets)) {
     if ($asset.name -match '^MooshieUIplus-B-Windows-(\d+\.\d+\.\d+)(?:-[A-Za-z0-9._-]+)?\.zip$' -and $Matches[1] -eq $baseVersion) {
-      $selected = [pscustomobject]@{ release = $release; asset = $asset }
+      $selected = [pscustomobject]@{ release=$release; asset=$asset }
       break
     }
   }
   if ($selected) { break }
 }
 if (-not $selected) {
-  $result = [ordered]@{ status = "none"; action = $Action; baseVersion = $baseVersion; message = "GitHub 尚無適用於 MooshieUI $baseVersion 的正式 B 版 Release。" }
-  if ($ResultFile) { $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 }
+  $result = [ordered]@{ status="none"; action=$Action; baseVersion=$baseVersion; message="GitHub 尚無適用 MooshieUI $baseVersion 的正式整合包。" }
+  if ($ResultFile) { $result | ConvertTo-Json | Set-Content -LiteralPath $ResultFile -Encoding UTF8 }
   Write-Output $result.message
   exit 0
 }
 $release = $selected.release
-$asset = $selected.asset
-$url = [string]$asset.browser_download_url
-if ($url -notmatch '^https://github\.com/Martie0001/MooshieUIplus/releases/download/') {
-  throw "GitHub 回傳不符合預期的下載位置，已取消。"
+$fullAsset = $selected.asset
+$tag = [string]$release.tag_name
+$sidecarName = [IO.Path]::GetFileNameWithoutExtension([string]$fullAsset.name) + ".update.json"
+$sidecarAsset = @($release.assets | Where-Object { $_.name -eq $sidecarName } | Select-Object -First 1)
+$managerAsset = $null
+$updateInfo = $null
+$needsExe = $true
+$needsManager = $true
+if ($sidecarAsset.Count -eq 1) {
+  $sidecarUrl = [string]$sidecarAsset[0].browser_download_url
+  if ($sidecarUrl -notmatch '^https://github\.com/Martie0001/MooshieUIplus/releases/download/') {
+    throw "GitHub 更新資訊來源不符，拒絕下載。"
+  }
+  $updateInfo = Invoke-RestMethod -Uri $sidecarUrl -Headers $headers -TimeoutSec 30
+  if ($updateInfo.schemaVersion -ne 1 -or $updateInfo.mooshieuiVersion -ne $baseVersion -or
+      $updateInfo.package -ne $fullAsset.name -or
+      [string]$updateInfo.payloadSha256 -notmatch '^[a-fA-F0-9]{64}$') {
+    throw "GitHub 更新資訊版本或校驗資料有誤。"
+  }
+  $needsExe = $exeHash -ne [string]$updateInfo.payloadSha256
+  $needsManager = $false
+  $allowedFiles = @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")
+  foreach ($name in $allowedFiles) {
+    $expected = [string]$updateInfo.managerFiles.$name
+    if ($expected -notmatch '^[a-fA-F0-9]{64}$') { throw "更新資訊缺少管理器檔案雜湊：$name" }
+    $localFile = Join-Path $ManagerRoot $name
+    if (-not (Test-Path -LiteralPath $localFile) -or
+        (Get-FileHash -LiteralPath $localFile -Algorithm SHA256).Hash -ne $expected) {
+      $needsManager = $true
+    }
+  }
+  if ($needsManager -and -not $needsExe) {
+    $managerAssetName = [string]$updateInfo.managerAsset
+    $managerAsset = @($release.assets | Where-Object { $_.name -eq $managerAssetName } | Select-Object -First 1)
+    if ($managerAsset.Count -ne 1 -or $managerAssetName -notmatch '^MooshieUIplus-Manager-[a-zA-Z0-9._-]+\.zip$') {
+      throw "GitHub 發布版缺少獨立管理器更新包。"
+    }
+    $managerAsset = $managerAsset[0]
+  }
+} else {
+  # Releases without an update sidecar can use a previously verified installed-state record.
+  if (Test-Path -LiteralPath $stateFile) {
+    $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($state.appExe -eq $appExe -and $state.release -eq $tag -and
+        $state.exeSha256 -eq $exeHash) {
+      $needsExe = $false
+      $needsManager = $false
+    }
+  }
 }
 $result = [ordered]@{
-  status = "available"
+  status = if ($needsExe -or $needsManager) { "available" } else { "current" }
   action = $Action
   baseVersion = $baseVersion
-  release = [string]$release.tag_name
-  assetName = [string]$asset.name
-  publishedAt = [string]$release.published_at
-  message = "找到相容的正式發布版：$($release.tag_name)"
+  release = $tag
+  assetName = [string]$fullAsset.name
+  needsExe = $needsExe
+  needsManager = $needsManager
+  message = if ($needsExe -or $needsManager) { "GitHub 有相容更新：$tag" } else { "已是最新版本：$tag，不需下載。" }
 }
-if ($Action -eq "Check") {
+if ($Action -eq "Check" -or $result.status -eq "current") {
   if ($ResultFile) { $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 }
   Write-Output $result.message
   exit 0
 }
-if (-not $TempRoot) { $TempRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\temp" }
-$session = Join-Path $TempRoot ("release-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
-New-Item -ItemType Directory -Path $session -Force | Out-Null
-$zipFile = Join-Path $session ([string]$asset.name)
-$unpacked = Join-Path $session "unpacked"
-Write-Output "下載相容發布版：$($release.tag_name)"
-Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -OutFile $zipFile -TimeoutSec 240
-if ($asset.size -and (Get-Item -LiteralPath $zipFile).Length -ne [long]$asset.size) {
-  throw "下載檔案大小與 GitHub 發布資訊不一致。"
+if ($needsExe -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
+  throw "MooshieUI 仍在執行，請關閉後再替換 EXE。"
 }
-if ($asset.digest -and [string]$asset.digest -match '^sha256:([0-9a-fA-F]{64})$') {
-  if ((Get-FileHash -LiteralPath $zipFile -Algorithm SHA256).Hash -ne $Matches[1]) {
-    throw "下載檔案 SHA256 與 GitHub 發布資訊不一致。"
+$asset = if ($managerAsset) { $managerAsset } else { $fullAsset }
+$assetUrl = [string]$asset.browser_download_url
+if ($assetUrl -notmatch '^https://github\.com/Martie0001/MooshieUIplus/releases/download/') {
+  throw "GitHub 回傳的下載網址不符，已停止。"
+}
+if (-not [string]$asset.digest -or [string]$asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
+  throw "GitHub 更新附件沒有 SHA256 digest，拒絕安裝。"
+}
+$assetSha = $Matches[1]
+New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+$cacheFile = Join-Path $cacheRoot ("{0}-{1}" -f $asset.id, $asset.name)
+$useCache = Test-Path -LiteralPath $cacheFile
+if ($useCache) {
+  $useCache = (Get-Item -LiteralPath $cacheFile).Length -eq [long]$asset.size -and
+    (Get-FileHash -LiteralPath $cacheFile -Algorithm SHA256).Hash -eq $assetSha
+}
+if ($useCache) {
+  Write-Output "使用已驗證的本地更新包快取，不重新下載：$($asset.name)"
+} else {
+  $incoming = Join-Path $cacheRoot ("download-" + [guid]::NewGuid().ToString("N") + ".zip")
+  Write-Output "首次下載新發布版：$($asset.name)"
+  Invoke-WebRequest -Uri $assetUrl -Headers $headers -UseBasicParsing -OutFile $incoming -TimeoutSec 240
+  if ((Get-Item -LiteralPath $incoming).Length -ne [long]$asset.size -or
+      (Get-FileHash -LiteralPath $incoming -Algorithm SHA256).Hash -ne $assetSha) {
+    throw "GitHub 更新包大小或 SHA256 校驗失敗。"
   }
+  Move-Item -LiteralPath $incoming -Destination $cacheFile -Force
 }
+New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
+$unpacked = Join-Path $TempRoot ("release-" + [guid]::NewGuid().ToString("N"))
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = [IO.Compression.ZipFile]::OpenRead($zipFile)
+$archive = [IO.Compression.ZipFile]::OpenRead($cacheFile)
 try {
   foreach ($entry in $archive.Entries) {
     $name = $entry.FullName.Replace("\", "/")
-    if ($name.StartsWith("/") -or $name -match '(^|/)\.\.(/|$)' -or $name -match '^[A-Za-z]:') {
-      throw "更新 ZIP 內含不安全的路徑，已取消。"
+    if ($name.StartsWith("/") -or $name -match '(^|/)\.\.(/|$)' -or $name -match '^[a-zA-Z]:') {
+      throw "ZIP 內含不安全的相對路徑。"
     }
   }
 } finally { $archive.Dispose() }
-Expand-Archive -LiteralPath $zipFile -DestinationPath $unpacked -Force
-$manifestPath = Join-Path $unpacked "manifest.json"
-$payloadPath = Join-Path $unpacked "payload\comfyui-desktop.exe"
-if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $payloadPath)) {
-  throw "發布 ZIP 缺少 manifest.json 或預編譯執行檔。"
+Expand-Archive -LiteralPath $cacheFile -DestinationPath $unpacked
+$manifest = $null
+if ($needsExe) {
+  $manifestPath = Join-Path $unpacked "manifest.json"
+  $payload = Join-Path $unpacked "payload\comfyui-desktop.exe"
+  if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $payload)) {
+    throw "發布版缺少預編譯 EXE 或安裝資訊。"
+  }
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($manifest.mooshieuiVersion -ne $baseVersion -or
+      -not $manifest.payloadSha256 -or
+      (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ne $manifest.payloadSha256) {
+    throw "預編譯 EXE 版本或 SHA256 不符合。"
+  }
+  if ($updateInfo -and $manifest.payloadSha256 -ne $updateInfo.payloadSha256) {
+    throw "GitHub 更新資料與 EXE 雜湊不一致。"
+  }
 }
-$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($manifest.mooshieuiVersion -ne $baseVersion -or
-    -not $manifest.payloadSha256 -or
-    ((Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash -ne $manifest.payloadSha256)) {
-  throw "發布版與目前 MooshieUI 版本不相容，或 EXE SHA256 校驗失敗。"
+if ($updateInfo) {
+  foreach ($name in @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")) {
+    $scriptFile = Join-Path $unpacked $name
+    if (-not (Test-Path -LiteralPath $scriptFile) -or
+        (Get-FileHash -LiteralPath $scriptFile -Algorithm SHA256).Hash -ne [string]$updateInfo.managerFiles.$name) {
+      throw "管理器更新檔缺失或雜湊不符：$name"
+    }
+  }
 }
-$oldHash = (Get-FileHash -LiteralPath $appExe -Algorithm SHA256).Hash
-if ($oldHash -eq $manifest.payloadSha256) {
-  $result.status = "installed"
-  $result.message = "目前已安裝相同的整合版 EXE，不需更新。"
-} else {
+if ($needsExe) {
   $installer = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "Install-MooshieUIplus.ps1"
   & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $installer -AppExe $appExe -PackageRoot $unpacked
-  if ($LASTEXITCODE -ne 0) { throw "安裝器回報失敗；未宣稱更新完成。" }
-  if ((Get-FileHash -LiteralPath $appExe -Algorithm SHA256).Hash -ne $manifest.payloadSha256) {
-    throw "更新後 EXE SHA256 驗證失敗。"
-  }
-  $result.status = "updated"
-  $result.message = "整合模組已更新至 GitHub 發布版：$($release.tag_name)"
+  if ($LASTEXITCODE -ne 0) { throw "預編譯 EXE 安裝失敗。"}
 }
+if ($updateInfo) {
+  if ($needsManager) {
+    $managerBackup = Join-Path $env:LOCALAPPDATA ("MooshieUIplus\history\manager-backups\" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+    New-Item -ItemType Directory -Path $managerBackup -Force | Out-Null
+    foreach ($name in @("Install-MooshieUIplus.ps1","Release-Update.ps1","模組管理器.ps1","啟動模組管理.vbs")) {
+      $target = Join-Path $ManagerRoot $name
+      if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination (Join-Path $managerBackup $name) }
+      Copy-Item -LiteralPath (Join-Path $unpacked $name) -Destination $target -Force
+    }
+    Write-Output "模組管理器已更新，重新開啟視窗後生效。"
+  }
+  $targetHash = [string]$updateInfo.payloadSha256
+} else {
+  $targetHash = [string]$manifest.payloadSha256
+}
+if ((Get-FileHash -LiteralPath $appExe -Algorithm SHA256).Hash -ne $targetHash) { throw "安裝後 EXE 雜湊不符合。"}
+New-Item -ItemType Directory -Path (Split-Path -Parent $stateFile) -Force | Out-Null
+[ordered]@{appExe=$appExe;release=$tag;exeSha256=$targetHash;updatedAt=(Get-Date).ToString("o")} |
+  ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
+$result.status = "updated"
+$result.message = "整合版已更新至 $tag，已驗證 EXE 與管理器（如有更新請重開管理器）。"
 if ($ResultFile) { $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ResultFile -Encoding UTF8 }
 Write-Output $result.message
