@@ -4,11 +4,32 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前開發版本為 `0.3.4`（整合 MooshieUI 2.3.51；驗證狀態依下列項目）。
-- **官方 MooshieUI 版本**：獨立標示上游版本，目前適配 `2.3.51`。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前發布版本為 `0.3.6`（整合 MooshieUI 2.4.4）。
+- **官方 MooshieUI 版本**：獨立標示上游版本，本機 v0.3.6 適配 `2.4.4`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
+
+## [0.3.6] — 2026-11-20
+
+**上游適配：MooshieUI 2.4.4。** 沿用 v0.3.5 已確認的四個模組整合成果；LoRA Manager 1.5.0、TAG Manager 1.0.1、Prompt Generator 1.1.2、Creative Tools 0.5.0 的模組版號不變，Creative Tools 仍標註功能不完全（待開發）。
+
+- 以獨立 2.4.4 工作樹套用 2.4.0 自訂模組補丁，沒有合併衝突；保持現有模型、LoRA、使用者設定及 ComfyUI 後端路徑。
+- **節點升版防呆：** 比對 2.4.4 官方 `REQUIRED_MOOSHIE_NODE_CLASSES`，確認與 2.4.0 相同的 **28 個必要節點**；新版 B 安裝包同步更新 2.4.4 節點 manifest，保留 **31 個檔案**及 `custom_nodes/kolors_support/`，各檔 SHA256 與安裝包 manifest 重新核對。
+- 修正管理器跨版安裝及 GitHub 更新辨識，使 2.3.51／2.4.0 可升至 2.4.4；管理器升為 **0.3.6**。本地安裝先備份正式 EXE 與原管理器，再更新執行檔及節點資訊。
+- **實際完成：** Vite、i18n、portals、Svelte 檢查通過（0 errors、94 warnings）；Tauri/Rust 正式 Release 編譯成功，EXE ProductVersion=2.4.4，建置資訊沒有 `cfg(dev)`；安裝包唯讀預檢通過。正式 EXE SHA256 與 B 套件一致；ComfyUI `/object_info` 必要節點 **28／28** 載入，包含 `MooshieKolorsLoader`；當次佇列為空。新版主視窗實際啟動，Win32 `PrintWindow` 截圖顯示提示詞編輯區正常呈現，而非 `ERR_CONNECTION_REFUSED`；管理器 `--check` ExitCode 0。
+- 已在本地完成 B Windows 與 Manager ZIP 封裝及更新 JSON；**GitHub Release 由本版發行流程發布**。完整生圖、模組逐項 GUI 操作及跨機全新安裝尚未驗收，不宣稱全部通過。
+
+## [0.3.5] — 2026-11-18（本機部署；GitHub 尚未發布）
+
+**上游適配：MooshieUI 2.4.0。** 保留現有 LoRA、TAG、Prompt Generator 與 Creative Tools，整合新版模型架構註冊表、H3 影片 LoRA 分流及 ControlNet 模型識別。
+
+- **關鍵修復：B Windows 節點安裝包版本未同步。** 2.4.0 Rust 正式 EXE 雖已建置成功，但原節點包仍沿用 2.3.51 只檢查三個節點的清單，導致 ComfyUI 啟動檢查缺少 `MooshieKolorsLoader`。錯誤不是單純 ComfyUI 連線問題，也不能只以 HTTP 200 或前端視窗出現判定可用。
+- 修正 v0.3.5 節點包：從官方 2.4.0 `src-tauri/src/comfyui/nodes.rs` 的 `REQUIRED_MOOSHIE_NODE_CLASSES` 取得 **28 個必要節點**；打包 **31 個對應節點及相依／授權檔案**，包含獨立的 `custom_nodes/kolors_support/`。每檔 SHA256、節點 manifest 及安裝包驗證值重新計算。
+- 修正 `ensure_backend.ps1`：改從版次對應的 manifest 讀取完整必要節點，檢查 ComfyUI `/object_info`，支援自訂節點套件正確子目錄、原檔備份、佇列非空禁止重啟及辨識實際本機 ComfyUI 埠擁有者。永久來源保存於 `release-installer/ensure_backend.ps1`；安裝器也支援子目錄與失敗回報。
+- **已實際驗證：** Svelte 型別檢查 0 errors（94 warnings）；Vite＋Rust 正式 Release 編譯成功（Rust 6 warnings）；EXE ProductVersion 為 2.4.0、建置資訊未含 `cfg(dev)`、安裝包唯讀預檢成功；本機安裝後 ComfyUI 已安全重啟，`/object_info` 的必要節點 **28／28 全部存在**，包含 `MooshieKolorsLoader`，當次佇列為空。重新開啟的本機 MooshieUI 視窗已透過 Win32 實際截圖，原「缺少必要節點」錯誤提示消失、提示詞與生成按鈕正常呈現；完整生圖及跨機乾淨安裝尚未驗收。
+- 管理器本機版本已更新到 **0.3.5**，新增 2.3.51 → 2.4.0 安裝路徑。Creative Tools 0.5.0 標示 **「功能不完全（待開發）」**，暫緩非必要開發。
+- 已建立 `AGENTS.md` 長期升版規範：**不得只升 EXE、沿用舊節點清單，必須同步 manifest 並核對全部必要節點的實際載入狀態**。正式 GitHub 發布仍待另行授權。
 
 ## [0.3.4] — 2026-11-17
 

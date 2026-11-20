@@ -9,7 +9,7 @@
 ## 版本號規則
 
 - MooshieUIplus 使用 `MAJOR.MINOR.PATCH`，自 `0.1.0` 開始。功能擴充提升 MINOR；向下相容的缺陷修復提升 PATCH；重大不相容變動提升 MAJOR。版本不得因為只執行重複測試而增加。
-- 官方 MooshieUI 版本另標示（目前為 `2.3.51`）；各模組維持既有 `dev/version.json`，只有該模組功能實際變更時更新。
+- 官方 MooshieUI 版本另標示（目前為 `2.4.4`）；各模組維持既有 `dev/version.json`，只有該模組功能實際變更時更新。
 - 每次發布必須更新 `CHANGELOG.md`，分別列出「新增」「修復」「已知問題」及「實際驗證」。Windows 管理器顯示自己的產品版號與模組版次，不把上游版本誤作套件版號。
 - 歷史 RC 標籤不重命名、不覆蓋；新版本使用新的 GitHub Release 標籤及 A/B 資產。
 

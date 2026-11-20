@@ -1,63 +1,56 @@
-# MooshieUIplus｜MooshieUI 2.3.51 擴充模組
+# MooshieUIplus v0.3.6｜MooshieUI 2.4.4 整合模組
 
-這個專案整合以下功能：LoRA 分類瀏覽／資訊管理、TAG 中文提示、Prompt Generator 可攜提示詞服務、Creative Tools（參考圖、擴圖、姿勢、後製／漫畫）。**這些功能是編譯進 MooshieUI 的 source-level 擴充，不是 ComfyUI 的 custom_nodes。**
+本專案將 **LoRA Manager、TAG Manager、Prompt Generator、Creative Tools** 以 source-level 方式整合進 [MooshieUI](https://github.com/Mooshieblob1/MooshieUI)。它們不是可單獨熱插拔的 ComfyUI 外掛。
 
-Windows 模組管理器採用參考 [ModAssistant](https://github.com/bsmg/ModAssistant) 的 WPF 模組清單與側邊導覽介面。**一般使用者直接雙擊 `MooshieUIplus-Manager.exe` 啟動**；不再要求使用 `.vbs`、PowerShell 或 CMD。原專案依 MIT 授權，保留著作權聲明與授權全文於管理器程式，並於 NOTICE 中標示來源。
+**目前版本：MooshieUIplus 0.3.6／MooshieUI 2.4.4。** Creative Tools 0.5.0 為「功能不完全（待開發）」。已完成本機建置、啟動和必要節點載入檢查；尚未完成跨電腦乾淨安裝與所有繪圖功能的 GUI 驗收。更新細節見 [CHANGELOG.md](CHANGELOG.md)。
 
-**MooshieUIplus 產品版本從 `0.1.0` 起單獨管理**，與官方 MooshieUI `2.3.51` 及各模組版次分開。歷次新增、修復與未解決問題請見 [`CHANGELOG.md`](CHANGELOG.md)。
+## 下載與安裝
 
-## 下載哪個檔案？
+| 下載檔 | 適用對象 | 說明 |
+| --- | --- | --- |
+| `MooshieUIplus-B-Windows-2.4.4-v0.3.6.zip` | Windows 一般使用者 | **推薦**，免編譯整合包；含桌面整合 EXE、完整 2.4.4 節點包、可攜 Prompt Generator runtime、圖形模組管理器 |
+| `MooshieUIplus-Manager-2.4.4-v0.3.6.zip` | 已有整合版、只需更新管理器 | 較小的 Windows 管理器／啟動器包，需與現有 MooshieUI 一起使用 |
+| `MooshieUIplus-A-Source-2.4.4-v0.3.6.zip` | 開發者 | 與發布 EXE 對應的完整整合原始碼及模組、授權與安裝腳本 |
+| `MooshieUIplus-B-Windows-2.4.4-v0.3.6.update.json` | 管理器自動更新 | 版本、檔案 SHA256 與節點清單，供更新器自動校驗 |
 
-| 版本 | 對象 | 建置工具 | 安裝方式 |
-| --- | --- | --- | --- |
-| **B：Windows 免編譯模組管理器** | 一般使用者 | 不需要 Node.js、Rust、Git 或 C++ Build Tools | 安裝原版 MooshieUI 2.3.51，完整解壓 ZIP，雙擊「MooshieUIplus-Manager.exe」 |
-| **A：完整整合原始碼包** | 開發者、想修改功能的使用者 | 需要 Node.js/npm、Git、Rust/Cargo、Visual Studio C++ Build Tools、Windows SDK | 用隨附原始碼編譯，或將模組套用到乾淨的官方 2.3.51 原始碼 |
+所有發布檔案在 [GitHub Releases](https://github.com/Martie0001/MooshieUIplus/releases)。
 
-**請勿把兩個 ZIP 當成適用不同版本的程式。兩者均以 MooshieUI 2.3.51 為目標；新版管理器允許從現有 2.3.49／2.3.50 經使用者確認升級，並備份舊版 EXE。** 下載最新版 MooshieUI 並不代表此套件已適配。
+### 一般使用者
 
-## B：一般使用者安裝（推薦）
+1. 先安裝並確認官方 MooshieUI／ComfyUI 可以使用，再下載 **B Windows ZIP** 並**完整解壓縮**。
+2. 雙擊 **`MooshieUIplus-Manager.exe`**。這是正式圖形啟動器；**不需要**使用 `.vbs`、CMD 或 PowerShell，也**不能只拿單獨 EXE**。
+3. 選擇已安裝 MooshieUI 的 `comfyui-desktop.exe`。關閉 MooshieUI 後執行「本地套件安裝」。安裝器會驗證版本和 SHA256，備份舊 EXE，安裝對應節點與啟動器。
+4. 以後在圖形管理器按「檢查 GitHub 並更新」。沒有變更就不下載整包；管理器和完整套件分開更新，已驗證的下載檔可重用。
 
-1. 安裝官方 MooshieUI **2.3.51**，確認程式與 ComfyUI 後端可正常啟動。若要使用 **Prompt Generator AI 生成功能**，另外從 [Ollama 官方網站](https://ollama.com/download) 安裝並啟動 Ollama、至少下載一個聊天模型。
-2. 下載 GitHub Release 內的 **B Windows ZIP**，完整解壓縮到任意資料夾，例如 `C:\AI\MooshieUIplus`。
-3. 雙擊 **`MooshieUIplus-Manager.exe`** 開啟圖形管理器，首次指定已安裝的 `comfyui-desktop.exe`，無須使用 `.vbs`、CMD 或 PowerShell。請完整解壓縮 ZIP，不可只複製管理器 EXE。
-4. 需要首次安裝時，關閉 MooshieUI，按「本地套件安裝」，由管理器備份 EXE 後替換。
-5. 以後只要按一次 **「檢查 GitHub 並更新」**，有相容新版本時確認即可更新，不必再手動下載新的整包。管理器優先比對小型更新資訊與本機 SHA256，無變更不下載；只有管理器改版時只下載小型包，EXE 改版才下載完整 B ZIP；已驗證 ZIP 會快取重用。
-6. 需要還原時，按「還原備份」，備份儲存在 `%LOCALAPPDATA%\MooshieUIplus\history\exe-backups`。
+**從舊版升級：** 0.3.4 或更早管理器可能無法識別 2.4.4 跨版更新。請先下載 0.3.6 的 **Manager ZIP**（或完整 B ZIP）手動更新管理器，再由新版更新器檢查。0.3.6 安裝器支援從 MooshieUI 2.3.51 或 2.4.0 升至 2.4.4；更舊的上游版本請先升級到受支援版本，不會直接任意覆蓋。
 
-**舊版 v0.2.4（含以前）使用者：** 舊管理器只搜尋與現有 MooshieUI 相同上游版本的 Release，首次跨版請先下載 v0.3.0 的新版 Manager ZIP 或完整 B ZIP，解壓後使用新版管理器執行。
+圖形管理器需要 Windows 10／11 的 .NET Framework 4.x（WPF）與 Windows PowerShell 5.1，MooshieUI 主視窗另需 WebView2。使用者**不需要**安裝 Rust、C++ Build Tools 或 Node.js。管理器 EXE 未數位簽章，可能出現 Windows SmartScreen 提示；只使用可信任的 GitHub Release。
 
-**舊版 v0.1.1／v0.2.0 使用者：** 為避免舊更新器未安裝完整執行元件，建議直接下載最新版 B Windows ZIP、完整解壓後雙擊 `MooshieUIplus-Manager.exe`，選擇原本正在使用的 MooshieUI EXE，透過「本地套件安裝」一次更新 EXE 與 Node runtime。舊更新器仍可用作過渡，但可能需要再執行一次新版管理器更新。
+**Prompt Generator：** 已附帶 Node.js runtime，但 AI 翻譯、生成與模型選擇**仍需自行安裝及啟動 [Ollama](https://ollama.com/download)**，至少準備一個聊天模型。
 
-B 版不需要編譯工具；管理器需要 Windows 10／11 上的 .NET Framework 4.x／WPF 與 Windows PowerShell 5.1（附完整管理器腳本，但一般使用者不需自行開啟）。原版 MooshieUI 桌面視窗另需 Edge WebView2 Runtime。EXE 未數位簽章，可能遇到 Windows SmartScreen 提示；請使用本專案 Release 並核對雜湊。管理器啟動失敗會顯示錯誤與日誌位置，`Program Files` 安裝可能顯示 Windows UAC 提權。仍需要可正常使用的官方 MooshieUI 2.3.51 與 ComfyUI 後端。本套件不是完整 ComfyUI 安裝程式；不會在未確認時自行跨版安裝，但新版管理器支援 2.3.49／2.3.50 → 2.3.51。四個模組共用同一個已編譯 EXE，並非可以獨立熱插拔的外掛。
+### 開發者
 
-## A：開發者與原始碼安裝
-
-1. 取得 A ZIP 並解壓，內含 `source/`（2.3.51 對應完整整合原始碼）、`module-manager/` 與四個模組。
-2. 在 `source/` 執行 `npm ci`，確認 Node.js LTS、Git、Rust/Cargo（MSVC）、Visual Studio 2022 C++ Build Tools、Windows SDK 已安裝。
-3. 於 Windows 執行 `module-manager/啟動模組管理.cmd`，選擇官方 2.3.51 的 `comfyui-desktop.exe` 與 ZIP 內的 `source/`。關閉 MooshieUI 後，使用「覆蓋安裝」。
-4. 模組管理器會備份目前 EXE、核對版本、整合、編譯並在成功後部署；備份可由管理器復原。
-
-也可先下載**乾淨官方 2.3.51 原始碼**，執行：
+A ZIP 內的 `source/` 是對應 MooshieUI 2.4.4 的完整整合程式碼，而非過時的 2.3.x 開發工作樹。請在支援的 Windows 開發環境安裝 Node.js/npm、Rust/Cargo（MSVC）、Visual Studio C++ Build Tools 和 Windows SDK，於 `source/` 執行：
 
 ```powershell
-node .\module-manager\install-clean.mjs "C:\path\to\mooshieui-2.3.51-source"
+npm ci
+.\node_modules\.bin\tauri.cmd build --no-bundle --ci
 ```
 
-上述指令要在解壓後的 MooshieUIplus 套件根目錄執行；`install-clean.mjs` 僅修改使用者指定的原始碼樹，不修改正式 EXE 或個人資料。務必使用版本相符、未經修改的官方原始碼。A ZIP 已自帶整合完成的原始碼，通常不必再執行這一步。
+如需原始碼補丁，`module-manager/integrated-2.4.4.patch` 對應官方 MooshieUI v2.4.4。舊版 `integrated-2.4.0.patch` 等只供歷史參考，不應套到 2.4.4。
 
-## 模型路徑與分類
+### 節點及使用者資料
 
-**不需要把 LoRA 放入模組資料夾。** LoRA 使用 MooshieUI／ComfyUI 原有的模型設定與額外模型路徑；資料夾與模型清單動態讀取。分類與資訊儲存在每台電腦自己的 MooshieUI 資料目錄 `addons/lora-manager/`，不會把發佈者的分類或本機路徑帶到別人電腦。
+2.4.4 必須載入官方所列的 **28 個 ComfyUI 節點類別**。B 包內含 **31 個節點／相依與授權檔案**，包含 `kolors_support`。啟動器 `ensure_backend.ps1` 會核對當版 `comfy-nodes.json`、檔案雜湊及 ComfyUI 的 `/object_info`；單看 HTTP 200 不算通過。安裝與修復前會檢查佇列，避免繪圖中擅自重啟。
 
-LoRA Manager 1.5.0 支援全部／角色／風格／服裝／效果／其他及多重分類；先讀取手動類型與模型 TAG，無法判定時以資料夾慣例推定並註明，最後再依資料夾縮小結果。直接放置在 LoRA／Anima 根目錄的模型顯示於「LoRA（主目錄）」虛擬分類，模型檔案不會被移動。
+模型權重、LoRA、生成圖片、Profile 及使用者分類不隨包提供，也不應由升版流程任意覆蓋。
 
-## 已知依賴與限制
+## 模組版本與限制
 
-- **Prompt Generator 1.1.2** 的基本服務已內建於 B 版整合 EXE，Node.js 可攜執行元件會由安裝器放在 MooshieUI 主程式旁，不需使用者另裝 Node.js。**但 AI 生成功能、翻譯、列出或測試模型必須另行安裝並啟動 [Ollama](https://ollama.com/download)，且至少備妥一個聊天模型。** 私有 TAG 詞庫不會附在公開安裝包；未提供時只能使用不宣稱 TAG 已驗證的自然英文提示詞。開發者可透過 `MOOSHIEUI_PROMPT_SERVICE` 使用原有自訂服務，也可用 `MOOSHIEUI_PROMPT_TAGS` 指定自己合法持有的 TAG JSON。
-- **Creative Tools** 的部分功能需要 ComfyUI 對應 ControlNet 節點與權重；缺少模型時功能可能無法執行。
-- 本套件基於上游 MooshieUI 2.3.51／AGPL-3.0。請閱讀隨附 `LICENSE`、`NOTICE.md` 及對應完整原始碼；公開發布前仍需確認 TAG 資料的再散布權利。
-- 未在他人電腦完成全套圖像生成功能驗收時，不應宣稱所有功能都已通過實機測試。
+- **LoRA Manager 1.5.0**：分類瀏覽、服裝、多重類型、資訊管理
+- **TAG Manager 1.0.1**：TAG 中文對照
+- **Prompt Generator 1.1.2**：本地提示詞／翻譯整合，需額外 Ollama
+- **Creative Tools 0.5.0**：部分功能已實作，**功能不完全（待開發）**
+- **Module Manager 0.3.6**：圖形啟動、相容更新、節點完整性檢查、備份與還原
 
-## GitHub
-
-GitHub 原始碼：<https://github.com/Martie0001/MooshieUIplus>，最新版請使用 [GitHub Releases](https://github.com/Martie0001/MooshieUIplus/releases)。後續每次完成模組更新與必要驗收，都應同步 GitHub 原始碼、A／B ZIP、Manager 小型 ZIP 與更新資訊 JSON；詳細流程參見 `PUBLISHING.md`。
+上游 MooshieUI 與自訂整合程式碼的授權及第三方聲明請見 [LICENSE](LICENSE) 和 [NOTICE.md](NOTICE.md)。發布及版本管理規範見 [PUBLISHING.md](PUBLISHING.md)。

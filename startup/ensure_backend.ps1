@@ -21,7 +21,18 @@ $nodeDir = Join-Path $comfy 'custom_nodes\mooshie-nodes'
 $assets = Join-Path $appRoot 'MooshieUIplus\ComfyNodes'
 $manifestFile = Join-Path $assets 'comfy-nodes.json'
 $logDir = Join-Path (Split-Path -Parent $comfy) 'temp'
-$required = @('MooshieMaskDetailer','MooshieSkinContrast','MooshieAnimaArtStyle')
+if (-not (Test-Path -LiteralPath $manifestFile)) { throw "Missing versioned ComfyUI node manifest: $manifestFile" }
+$nodeInfo = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
+$required = @($nodeInfo.requiredNodes | Where-Object { $_ -is [string] -and $_.Trim() })
+if ($required.Count -eq 0) { throw 'ComfyUI node manifest has no requiredNodes; refusing incomplete verification.' }
+function Resolve-NodeDestination([string]$name) {
+  $relative = $name.Replace('/', '\')
+  if ([IO.Path]::IsPathRooted($relative) -or $relative -match '(^|\\)\.\.($|\\)') { throw "Unsafe node path: $name" }
+  if ($relative.StartsWith('custom_nodes\', [StringComparison]::OrdinalIgnoreCase)) {
+    return Join-Path (Join-Path $comfy 'custom_nodes') $relative.Substring(13)
+  }
+  return Join-Path $nodeDir $relative
+}
 $mutex = New-Object System.Threading.Mutex($false,'Local\PICTURE_ComfyUI_Start')
 $hasLock = $false
 function Test-Http {
@@ -73,7 +84,7 @@ try {
           (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne [string]$item.Value) {
         throw "ComfyUI node pack corrupt or incomplete: $($item.Name)"
       }
-      $destination = Join-Path $nodeDir $item.Name
+      $destination = Resolve-NodeDestination $item.Name
       if (-not (Test-Path -LiteralPath $destination) -or
           (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne [string]$item.Value) {
         $needsSync = $true
@@ -87,16 +98,17 @@ try {
   if ($online) { Assert-NoPendingJobs }
   if ($needsSync) {
     $backup = Join-Path $appRoot ('MooshieUIplus\history\comfy-nodes\'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
-    New-Item -ItemType Directory -Path $nodeDir -Force | Out-Null
     foreach ($item in $fileHashes.PSObject.Properties) {
       $source = Join-Path $assets $item.Name
-      $destination = Join-Path $nodeDir $item.Name
+      $destination = Resolve-NodeDestination $item.Name
       if ((Test-Path -LiteralPath $destination) -and
           (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -eq [string]$item.Value) { continue }
       if (Test-Path -LiteralPath $destination) {
-        New-Item -ItemType Directory -Path $backup -Force | Out-Null
-        Copy-Item -LiteralPath $destination -Destination (Join-Path $backup $item.Name) -Force
+        $saved = Join-Path $backup $item.Name
+        New-Item -ItemType Directory -Path (Split-Path -Parent $saved) -Force | Out-Null
+        Copy-Item -LiteralPath $destination -Destination $saved -Force
       }
+      New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
       Copy-Item -LiteralPath $source -Destination $destination -Force
       if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne [string]$item.Value) {
         throw "Node file sync failed: $($item.Name)"
@@ -112,9 +124,12 @@ try {
     if ($listening.Count -ne 1) { throw 'ComfyUI port ownership ambiguous; refusing automatic restart.' }
     $proc = Get-CimInstance Win32_Process -Filter ('ProcessId='+$listening[0].OwningProcess)
     $parent = if ($proc) { Get-CimInstance Win32_Process -Filter ('ProcessId='+$proc.ParentProcessId) }
-    if (-not $proc -or -not $parent -or
-        $proc.CommandLine -notmatch 'main\.py' -or
-        $parent.CommandLine -notlike ('*'+$comfy+'*')) {
+    # The supported Windows launcher may have two Python main.py processes as
+    # parent/child. Validate the *actual port owner* rather than its parent text.
+    if (-not $proc -or
+        $proc.CommandLine -notmatch '(?i)(^|\s)main\.py(\s|$)' -or
+        $proc.CommandLine -notmatch ('(?i)--port\s+' + [regex]::Escape([string]$port) + '(\s|$)') -or
+        $proc.CommandLine -notmatch '(?i)--listen\s+127\.0\.0\.1(\s|$)') {
       throw 'ComfyUI port is owned by an unrecognized process; restart it manually after node sync.'
     }
     $logBackup = Join-Path $appRoot ('MooshieUIplus\history\comfy-startup\'+(Get-Date -Format 'yyyyMMdd-HHmmss'))

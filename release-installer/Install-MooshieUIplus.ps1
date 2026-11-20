@@ -49,7 +49,7 @@ if ($Restore) {
     throw "安裝包缺少 manifest.json 或整合版執行檔。"
   }
   $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
-  $approvedUpgrade = $targetVersion -in @("2.3.49","2.3.50") -and $manifest.mooshieuiVersion -eq "2.3.51"
+  $approvedUpgrade = ($targetVersion -in @("2.3.49","2.3.50") -and $manifest.mooshieuiVersion -eq "2.3.51") -or ($targetVersion -eq "2.3.51" -and $manifest.mooshieuiVersion -eq "2.4.0") -or ($targetVersion -in @("2.3.51","2.4.0") -and $manifest.mooshieuiVersion -eq "2.4.4")
   if ((-not $approvedUpgrade -and $manifest.mooshieuiVersion -ne $targetVersion) -or
       -not $manifest.payloadSha256 -or
       ((Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ne $manifest.payloadSha256)) {
@@ -78,12 +78,19 @@ if ($Restore) {
         (Get-FileHash -LiteralPath $launcherSource -Algorithm SHA256).Hash -ne [string]$manifest.ensureBackendSha256) {
       throw 'ComfyUI 節點資訊或啟動器檔案校驗失敗。'
     }
-    $nodeMap = (Get-Content -LiteralPath $nodeManifest -Raw -Encoding UTF8 | ConvertFrom-Json).files
+    $nodeData = Get-Content -LiteralPath $nodeManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($nodeData.version -ne $manifest.mooshieuiVersion -or @($nodeData.requiredNodes).Count -eq 0) {
+      throw 'ComfyUI 節點清單版本錯誤或缺少 requiredNodes，拒絕安裝。'
+    }
+    $nodeMap = $nodeData.files
     foreach ($entry in $nodeMap.PSObject.Properties) {
       $nodeFiles += [pscustomobject]@{ name=$entry.Name; hash=[string]$entry.Value }
     }
     $nodeFiles += [pscustomobject]@{ name='comfy-nodes.json';hash=[string]$manifest.comfyNodeManifestSha256 }
     foreach ($item in $nodeFiles) {
+      if ($item.name -match '(^|[/\\])\.\.($|[/\\])' -or [IO.Path]::IsPathRooted($item.name)) {
+        throw ('節點清單包含不安全路徑：' + $item.name)
+      }
       $path = Join-Path $packageRoot ('payload\ComfyNodes\' + $item.name)
       if ($item.hash -notmatch '^[a-fA-F0-9]{64}$' -or
           -not (Test-Path -LiteralPath $path) -or
@@ -120,9 +127,16 @@ if ($nodeFiles.Count -gt 0 -and
   $needsNodes = $true
 }
 Write-Output "已確認 MooshieUI $targetVersion，路徑：$AppExe"
-if (-not $needsExe -and -not $needsRuntime -and -not $needsNodes) { Write-Output "執行檔、Prompt Generator 與 ComfyUI 節點包均已是指定版本。"; exit 0 }
 if ($VerifyOnly) { Write-Output "驗證完成：版本與安裝包及執行元件檢查通過，未修改正式程式。"; exit 0 }
-if (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue) {
+if (-not $needsExe -and -not $needsRuntime -and -not $needsNodes) {
+  Write-Output "EXE 與資源檔案已符合套件；仍需檢查 ComfyUI 實際載入全部必要節點。"
+  if (Test-Path -LiteralPath $launcherTarget) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcherTarget -RepairOnly
+    if ($LASTEXITCODE -ne 0) { throw 'ComfyUI 必要節點未通過載入驗收。' }
+  }
+  exit 0
+}
+if ($needsExe -and (Get-Process -Name "comfyui-desktop" -ErrorAction SilentlyContinue)) {
   throw "MooshieUI 仍在執行中。請先關閉程式再安裝／還原。"
 }
 
@@ -181,6 +195,7 @@ if ($needsNodes) {
     $path = Join-Path $nodeTarget $item.name
     if (Test-Path -LiteralPath $path) {
       $saved = Join-Path $backupFolder ('node-' + $item.name)
+      New-Item -ItemType Directory -Path (Split-Path -Parent $saved) -Force | Out-Null
       Copy-Item -LiteralPath $path -Destination $saved -ErrorAction Stop
       $nodePrevious[$item.name] = $saved
     } else { $nodePrevious[$item.name] = $null }
@@ -202,6 +217,7 @@ try {
     New-Item -ItemType Directory -Path $nodeTarget -Force | Out-Null
     foreach ($item in $nodeFiles) {
       $target = Join-Path $nodeTarget $item.name
+      New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
       Copy-Item -LiteralPath (Join-Path $packageRoot ('payload\ComfyNodes\' + $item.name)) -Destination $target -Force -ErrorAction Stop
       if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $item.hash) {
         throw ('ComfyUI 節點包安裝校驗失敗：' + $item.name)
@@ -252,7 +268,7 @@ try {
 if ($needsNodes -and (Test-Path -LiteralPath (Join-Path $appRoot 'data\config.json'))) {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcherTarget -RepairOnly
   if ($LASTEXITCODE -ne 0) {
-    Write-Warning '節點資源已更新，但執行中的 ComfyUI 尚未重新載入；請確認佇列空閒後重新啟動。'
+    throw '節點資源已安裝，但 ComfyUI 必要節點尚未載入，尚未通過啟動驗收。'
   }
 }
 Write-Output "MooshieUIplus 已安裝。Prompt Generator 執行元件位於：$runtimeTarget；使用此功能前仍需安裝並啟動 Ollama."
