@@ -4,13 +4,24 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，目前發布版本為 `0.3.6`（整合 MooshieUI 2.4.4）。
-- **官方 MooshieUI 版本**：獨立標示上游版本，本機 v0.3.6 適配 `2.4.4`。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，本紀錄最新版本為 `0.3.8`（整合 MooshieUI 2.4.7）；實際公開發布狀態以 GitHub Releases 為準。
+- **官方 MooshieUI 版本**：獨立標示上游版本，本機 v0.3.8 適配 `2.4.7`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
 
-## [0.3.6] — 2026-11-20
+## [0.3.8] — 2026-11-23（本機部署；對應 GitHub Release `v0.3.8-mooshieui-2.4.7`）
+
+**上游適配：MooshieUI 2.4.7。** 本輪先完成 2.4.6 中繼整合及本機驗收，再追查官方已發布 2.4.7，續行適配並部署。LoRA Manager 1.5.0、TAG Manager 1.0.1、Prompt Generator 1.1.2、Creative Tools 0.5.0 的模組版本不變；Creative Tools 仍為「功能不完全／待開發」。
+
+- v2.4.7 新增多頁漫畫、自由佈局、向量對話框、跨頁角色參考、備份還原及自動更新設定；既有 Creative Tools 保持獨立，與新版原生漫畫功能並存，沒有宣稱 Creative Tools 已完成。
+- 以獨立 v2.4.7 工作樹套用 MooshieUIplus 整合補丁，沒有合併衝突；v2.4.6 的原生擴圖與 Creative Tools 圖片轉交入口一併保留。i18n、Portals、Svelte 型別檢查通過；Rust/Tauri Release 建置 ExitCode 0，產出版本 **2.4.7** 的正式 EXE，SHA256 **CCD5F3C32BE4E665322A324643C5E052B96A56F05537989F44185A54D726A483**。
+- v2.4.7 的 ComfyUI 官方必要節點仍為 **28 個**，新版 B 套件保留 **31 個節點資源檔案**及版本化 SHA256 清單；已由實際 ComfyUI `/object_info` 查得 **28/28** 節點全部載入、缺漏 0，驗收當時佇列 0。
+- 管理器更新至 **0.3.8**，補充 2.4.4／2.4.6 → 2.4.7 的合法升級辨識；安裝包 VerifyOnly、EXE SHA256 與管理器 `--check` 通過。實際部署已備份舊版正式 EXE、舊管理器及必要節點資訊，未改動模型、LoRA 或使用者設定。
+- 真實 Windows 桌面視窗已啟動；Win32 `PrintWindow` 擷取到 v2.4.7 的「更新內容」視窗與提示詞介面，非 `ERR_CONNECTION_REFUSED`。上游原生自動更新預設關閉；使用自訂整合版時應改由 MooshieUIplus Manager 更新，避免上游安裝包取代自訂 EXE。
+- **尚未完成／不宣稱：** 未進行完整生圖、各模組逐項 GUI 操作與不同 Windows 電腦乾淨安裝驗收；正式 Release 發布狀態以 GitHub 平台實際資料為準。
+
+## [0.3.6] — 2026-11-20（本機部署；GitHub 已發布）
 
 **上游適配：MooshieUI 2.4.4。** 沿用 v0.3.5 已確認的四個模組整合成果；LoRA Manager 1.5.0、TAG Manager 1.0.1、Prompt Generator 1.1.2、Creative Tools 0.5.0 的模組版號不變，Creative Tools 仍標註功能不完全（待開發）。
 
@@ -18,7 +29,7 @@
 - **節點升版防呆：** 比對 2.4.4 官方 `REQUIRED_MOOSHIE_NODE_CLASSES`，確認與 2.4.0 相同的 **28 個必要節點**；新版 B 安裝包同步更新 2.4.4 節點 manifest，保留 **31 個檔案**及 `custom_nodes/kolors_support/`，各檔 SHA256 與安裝包 manifest 重新核對。
 - 修正管理器跨版安裝及 GitHub 更新辨識，使 2.3.51／2.4.0 可升至 2.4.4；管理器升為 **0.3.6**。本地安裝先備份正式 EXE 與原管理器，再更新執行檔及節點資訊。
 - **實際完成：** Vite、i18n、portals、Svelte 檢查通過（0 errors、94 warnings）；Tauri/Rust 正式 Release 編譯成功，EXE ProductVersion=2.4.4，建置資訊沒有 `cfg(dev)`；安裝包唯讀預檢通過。正式 EXE SHA256 與 B 套件一致；ComfyUI `/object_info` 必要節點 **28／28** 載入，包含 `MooshieKolorsLoader`；當次佇列為空。新版主視窗實際啟動，Win32 `PrintWindow` 截圖顯示提示詞編輯區正常呈現，而非 `ERR_CONNECTION_REFUSED`；管理器 `--check` ExitCode 0。
-- 已在本地完成 B Windows 與 Manager ZIP 封裝及更新 JSON；**GitHub Release 由本版發行流程發布**。完整生圖、模組逐項 GUI 操作及跨機全新安裝尚未驗收，不宣稱全部通過。
+- 已在本地完成 B Windows 與 Manager ZIP 封裝及更新 JSON；**已發布 GitHub Release `v0.3.6-mooshieui-2.4.4`**。完整生圖、模組逐項 GUI 操作及跨機全新安裝尚未驗收，不宣稱全部通過。
 
 ## [0.3.5] — 2026-11-18（本機部署；GitHub 尚未發布）
 

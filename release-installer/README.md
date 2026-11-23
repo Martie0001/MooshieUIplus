@@ -1,4 +1,4 @@
-# MooshieUIplus v0.3.6（適配 MooshieUI 2.4.4）｜Windows EXE 圖形模組管理器
+# MooshieUIplus v0.3.8（適配 MooshieUI 2.4.7）｜Windows EXE 圖形模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
@@ -15,7 +15,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 
 **舊版升級提示：** v0.2.4 或更早的更新器無法自動偵測 2.3.51 跨版更新，請先使用 v0.3.1 管理器。 v0.1.1 的更新器只處理 EXE，不會安裝新的 Prompt Generator runtime。請下載此版 B Windows ZIP，雙擊 `MooshieUIplus-Manager.exe` 並執行「本地套件安裝」，一次完成 EXE 與 runtime 安裝。舊 `啟動模組管理.vbs` 僅為舊版更新器相容保留，不再作為啟動教學入口。
 
-整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools（**功能不完全／待開發**）。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準；已明確允許 2.3.49／2.3.50 → 2.3.51、2.3.51 → 2.4.0、2.3.51／2.4.0 → 2.4.4，其他跨版不任意覆蓋。請至 GitHub Releases 取得正式安裝包。
+整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools（**功能不完全／待開發**）。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準；已明確允許 2.3.49／2.3.50 → 2.3.51、2.3.51 → 2.4.0、2.3.51／2.4.0 → 2.4.4、2.4.0／2.4.4 → 2.4.6、2.4.4／2.4.6 → 2.4.7，其他跨版不任意覆蓋。請至 GitHub Releases 取得正式安裝包。
 
 ## 下載量
 
@@ -45,7 +45,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 ## 限制
 
 - Prompt Generator 1.1.2 基本服務已內建於 EXE，B 版附可攜 Node.js runtime；**Ollama 不隨包提供，須另行安裝、啟動及準備聊天模型。** 未提供合法 TAG 詞庫時，TAG 搜尋不可用，但可透過 Ollama 生成自然英文與繁中對照。
-- **v0.3.6 開發版**的 B 安裝包必須依對應 MooshieUI 2.4.4 官方 `REQUIRED_MOOSHIE_NODE_CLASSES` 製作；目前有 **28 個必要節點**、對應 **31 個檔案**（含 `MooshieKolorsLoader` 的 `kolors_support` 子套件）。`ensure_backend.ps1` 須核對 `/object_info` 全部節點實際載入，不能以 HTTP 200 或 EXE 編譯成功取代。後續升版先看根目錄 `AGENTS.md`，發現新的必要節點不得沿用舊 manifest。v0.3.4 公開套件仍以其對應的 2.3.51 為準。
+- **v0.3.8 開發版**的 B 安裝包必須依對應 MooshieUI 2.4.7 官方 `REQUIRED_MOOSHIE_NODE_CLASSES` 製作；目前有 **28 個必要節點**、對應 **31 個檔案**（含 `MooshieKolorsLoader` 的 `kolors_support` 子套件）。`ensure_backend.ps1` 須核對 `/object_info` 全部節點實際載入，不能以 HTTP 200 或 EXE 編譯成功取代。後續升版先看根目錄 `AGENTS.md`，發現新的必要節點不得沿用舊 manifest。v0.3.4 公開套件仍以其對應的 2.3.51 為準。
 - **Creative Tools 0.5.0：功能不完全（待開發）**。部分功能仍依賴額外 ComfyUI 節點／模型；暫緩功能擴充，只維持必要相容性。
 - TAG 詞庫原始來源與再散布權利仍待進一步釐清；請參閱 `NOTICE.md`。
 - 未完成其他電腦的完整 UI／生圖驗收，不得宣稱所有功能通過。

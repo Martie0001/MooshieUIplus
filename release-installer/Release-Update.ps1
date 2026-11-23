@@ -27,7 +27,7 @@ foreach ($release in ($releases | Sort-Object -Property published_at -Descending
   foreach ($asset in @($release.assets)) {
     if ($asset.name -match '^MooshieUIplus-B-Windows-(\d+\.\d+\.\d+)(?:-[A-Za-z0-9._-]+)?\.zip$') {
       $offeredBase = [string]$Matches[1]
-      $approvedUpgrade = ($offeredBase -eq "2.3.51" -and $baseVersion -in @("2.3.49","2.3.50")) -or ($offeredBase -eq "2.4.0" -and $baseVersion -eq "2.3.51") -or ($offeredBase -eq "2.4.4" -and $baseVersion -in @("2.3.51","2.4.0"))
+      $approvedUpgrade = ($offeredBase -eq "2.3.51" -and $baseVersion -in @("2.3.49","2.3.50")) -or ($offeredBase -eq "2.4.0" -and $baseVersion -eq "2.3.51") -or ($offeredBase -eq "2.4.4" -and $baseVersion -in @("2.3.51","2.4.0")) -or ($offeredBase -eq "2.4.6" -and $baseVersion -in @("2.4.0","2.4.4")) -or ($offeredBase -eq "2.4.7" -and $baseVersion -in @("2.4.4","2.4.6"))
       if ($offeredBase -eq $baseVersion -or $approvedUpgrade) {
         $selected = [pscustomobject]@{ release=$release; asset=$asset; targetBaseVersion=$offeredBase }
         break
