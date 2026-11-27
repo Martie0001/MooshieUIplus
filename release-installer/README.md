@@ -1,4 +1,4 @@
-# MooshieUIplus v0.3.8（適配 MooshieUI 2.4.7）｜Windows EXE 圖形模組管理器
+# MooshieUIplus v0.3.9（適配 MooshieUI 2.4.11）｜Windows EXE 圖形模組管理器
 
 模組管理器畫面顯示產品版本與四個模組版次；修正內容、尚未解決的問題及歷史變更列於 GitHub 的 [`CHANGELOG.md`](https://github.com/Martie0001/MooshieUIplus/blob/main/CHANGELOG.md)。Prompt Generator 服務已內建；**使用 AI 功能仍須先安裝並啟動 Ollama，且至少下載一個聊天模型**。
 
@@ -15,7 +15,7 @@ Windows 一般使用者不需 Node.js、Rust、Git 或 C++ 編譯環境；此管
 
 **舊版升級提示：** v0.2.4 或更早的更新器無法自動偵測 2.3.51 跨版更新，請先使用 v0.3.1 管理器。 v0.1.1 的更新器只處理 EXE，不會安裝新的 Prompt Generator runtime。請下載此版 B Windows ZIP，雙擊 `MooshieUIplus-Manager.exe` 並執行「本地套件安裝」，一次完成 EXE 與 runtime 安裝。舊 `啟動模組管理.vbs` 僅為舊版更新器相容保留，不再作為啟動教學入口。
 
-整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools（**功能不完全／待開發**）。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準；已明確允許 2.3.49／2.3.50 → 2.3.51、2.3.51 → 2.4.0、2.3.51／2.4.0 → 2.4.4、2.4.0／2.4.4 → 2.4.6、2.4.4／2.4.6 → 2.4.7，其他跨版不任意覆蓋。請至 GitHub Releases 取得正式安裝包。
+整合模組包含 LoRA Manager、TAG Manager、Prompt Generator、Creative Tools（**功能不完全／待開發**）。**目前模組共用已編譯 EXE，不支援將這四個模組獨立熱插拔。** 版本比對以實際安裝的 MooshieUI 主版本為準；已明確允許 2.3.49／2.3.50 → 2.3.51、2.3.51 → 2.4.0、2.3.51／2.4.0 → 2.4.4、2.4.0／2.4.4 → 2.4.6、2.4.4／2.4.6 → 2.4.7、2.4.7 → 2.4.11，其他跨版不任意覆蓋。請至 GitHub Releases 取得正式安裝包。
 
 ## 下載量
 

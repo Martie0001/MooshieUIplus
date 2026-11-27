@@ -49,7 +49,7 @@ if ($Restore) {
     throw "安裝包缺少 manifest.json 或整合版執行檔。"
   }
   $manifest = Get-Content -LiteralPath $manifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
-  $approvedUpgrade = ($targetVersion -in @("2.3.49","2.3.50") -and $manifest.mooshieuiVersion -eq "2.3.51") -or ($targetVersion -eq "2.3.51" -and $manifest.mooshieuiVersion -eq "2.4.0") -or ($targetVersion -in @("2.3.51","2.4.0") -and $manifest.mooshieuiVersion -eq "2.4.4") -or ($targetVersion -in @("2.4.0","2.4.4") -and $manifest.mooshieuiVersion -eq "2.4.6") -or ($targetVersion -in @("2.4.4","2.4.6") -and $manifest.mooshieuiVersion -eq "2.4.7")
+  $approvedUpgrade = ($targetVersion -in @("2.3.49","2.3.50") -and $manifest.mooshieuiVersion -eq "2.3.51") -or ($targetVersion -eq "2.3.51" -and $manifest.mooshieuiVersion -eq "2.4.0") -or ($targetVersion -in @("2.3.51","2.4.0") -and $manifest.mooshieuiVersion -eq "2.4.4") -or ($targetVersion -in @("2.4.0","2.4.4") -and $manifest.mooshieuiVersion -eq "2.4.6") -or ($targetVersion -in @("2.4.4","2.4.6") -and $manifest.mooshieuiVersion -eq "2.4.7") -or ($targetVersion -eq "2.4.7" -and $manifest.mooshieuiVersion -eq "2.4.11")
   if ((-not $approvedUpgrade -and $manifest.mooshieuiVersion -ne $targetVersion) -or
       -not $manifest.payloadSha256 -or
       ((Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ne $manifest.payloadSha256)) {

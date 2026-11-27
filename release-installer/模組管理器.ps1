@@ -32,7 +32,7 @@ $payload = Join-Path $root "payload\comfyui-desktop.exe"
 $settingsFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\manager-settings.json"
 $stateFile = Join-Path $env:LOCALAPPDATA "MooshieUIplus\installed-release.json"
 $backupRoot = Join-Path $env:LOCALAPPDATA "MooshieUIplus\history\exe-backups"
-$managerVersion = "0.3.8"
+$managerVersion = "0.3.9"
 if ($Action) {
   if (-not $AppExe -or -not (Test-Path -LiteralPath $AppExe)) { throw "找不到 MooshieUI 主程式。" }
   if ($Action -in @("Check","Update")) {
@@ -200,7 +200,7 @@ foreach ($n in @("VersionText","IntroNav","ModsNav","AboutNav","OptionsNav","Int
   Set-Variable -Scope Script -Name $n -Value $window.FindName($n)
 }
 $window.Title = "MooshieUIplus v$managerVersion｜模組管理器"
-$AboutVersion.Text = "管理器：v$managerVersion；適配官方 MooshieUI：2.4.7`n保留右側固定 LoRA 模型瀏覽區、TAG 與提示詞工具；Creative Tools 功能不完全（待開發）。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
+$AboutVersion.Text = "管理器：v$managerVersion；適配官方 MooshieUI：2.4.11`n保留右側固定 LoRA 模型瀏覽區、TAG 與提示詞工具；Creative Tools 功能不完全（待開發）。`n更新功能：GitHub 版本比對、下載快取、安裝備份、還原。"
 $table = New-Object System.Data.DataTable
 foreach ($name in @("Name","Installed","Latest","ModuleVersion","Description")) { [void]$table.Columns.Add($name,[string]) }
 [void]$table.Columns.Add("Verified",[bool])

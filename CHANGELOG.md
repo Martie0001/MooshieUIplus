@@ -4,11 +4,21 @@
 
 ## 版本規則
 
-- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，本紀錄最新版本為 `0.3.8`（整合 MooshieUI 2.4.7）；實際公開發布狀態以 GitHub Releases 為準。
-- **官方 MooshieUI 版本**：獨立標示上游版本，本機 v0.3.8 適配 `2.4.7`。
+- **MooshieUIplus 版本**：`MAJOR.MINOR.PATCH`，本紀錄最新版本為 `0.3.9`（整合 MooshieUI 2.4.11）；實際公開發布狀態以 GitHub Releases 為準。
+- **官方 MooshieUI 版本**：獨立標示上游版本，本次 v0.3.9 適配 `2.4.11`。
 - **模組版本**：沿用各模組 `dev/version.json`，僅在該模組實際有變更時提升；沒有修改的模組不虛增版次。
 - **GitHub Release**：每次發布使用新的、不可覆寫的標籤；標籤與下載包必須對應同一份測試過的程式碼及修正紀錄。
 - **驗收**：區分「原始碼已修改」、「本地測試通過」、「已發布 GitHub」與「使用者電腦驗證」；不得互相代替。
+
+## [0.3.9] — 2026-11-27（整合 MooshieUI 2.4.11；GitHub 版本 v0.3.9-mooshieui-2.4.11）
+
+**功能完整保留，不精簡：** LoRA Manager 1.5.0、TAG Manager 1.0.1、Prompt Generator 1.1.2、Creative Tools 0.5.0（含 08 參考圖、11 擴圖、22 姿勢控制、31 後製、40 漫畫）均維持原有入口及整合功能；官方原生漫畫、擴圖及 Prompt Assistant 與自製模組並存。Creative Tools 仍標註「功能不完全（待開發）」。
+
+- **升版：** 從官方 MooshieUI v2.4.11 獨立工作樹套用舊版完整模組補丁，人工處理 `GenerationPage.svelte` 圖片匯入與 `BottomPanel.svelte` Precise Reference hover / 自訂分頁拖曳的 2 處衝突；其餘既有模組程式碼保留。v2.4.11 的 NovelAI 角色參考、Anima Camera、Guide Image、原生漫畫、影片及 ComfyUI 維護功能皆保持在新版來源內。
+- **Release 編譯：** `npm run check`（Vite、i18n、Portals、Svelte types）及 Rust/Tauri 正式 Release 建置 ExitCode 0；EXE ProductVersion／FileVersion 均為 2.4.11，SHA256 `B8F7FA9099F954E87D633C24E5B52B7E903C0A11786A1BF5AE7DC51000559672`。
+- **節點封裝：** 依新上游 `REQUIRED_MOOSHIE_NODE_CLASSES` 比對，仍為 28 個必要節點類別；節點實作程式更新，B 安裝包包含 31 個節點及相依／授權檔，重新計算 manifest 與所有 SHA256。本輪使用暫存整合 EXE 真實開啟 Windows GUI，顯示 v2.4.11 更新內容及提示詞介面；ComfyUI `/object_info` 驗證 28／28 節點載入、佇列 0。
+- **管理器：** 更新 Module Manager 為 v0.3.9，允許既有 MooshieUI v2.4.7 升至 v2.4.11。管理器 `--check` 及 B 套件針對本機 v2.4.7 的 `-VerifyOnly` 已通過，沒有因此安裝或修改正式 EXE、模型、LoRA 與個人設定。
+- **已知限制：** 尚未實測每一項自製功能的完整生圖及跨電腦乾淨安裝；新版官方 ComfyUI 管理目標 v0.46.2，本機現有 ComfyUI v0.41.1 不於本次自動升級。正式本機部署與其他電腦升級不宣稱已完成。
 
 ## [0.3.8] — 2026-11-23（本機部署；對應 GitHub Release `v0.3.8-mooshieui-2.4.7`）
 
